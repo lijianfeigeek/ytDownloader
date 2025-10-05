@@ -1,0 +1,182 @@
+{
+  "jobId": "test_job_1759651994483",
+  "timestamp": "2025-10-05T08:13:14.499Z",
+  "system": {
+    "platform": "darwin",
+    "arch": "arm64",
+    "release": "24.3.0",
+    "hostname": "Jarvis-2.local",
+    "uptime": 83889,
+    "loadavg": [
+      3.08349609375,
+      2.65283203125,
+      2.41064453125
+    ],
+    "totalmem": 68719476736,
+    "freemem": 26518618112,
+    "cpus": [
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 30997230,
+          "nice": 0,
+          "sys": 23127560,
+          "idle": 29184580,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 30990470,
+          "nice": 0,
+          "sys": 22483070,
+          "idle": 29860240,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 10854440,
+          "nice": 0,
+          "sys": 4844920,
+          "idle": 67692110,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 6160560,
+          "nice": 0,
+          "sys": 2801880,
+          "idle": 74491430,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 3179430,
+          "nice": 0,
+          "sys": 1237480,
+          "idle": 79119800,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 2038460,
+          "nice": 0,
+          "sys": 779480,
+          "idle": 80753840,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 1642830,
+          "nice": 0,
+          "sys": 637880,
+          "idle": 81350430,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 971730,
+          "nice": 0,
+          "sys": 420950,
+          "idle": 82252050,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 649160,
+          "nice": 0,
+          "sys": 286520,
+          "idle": 82717910,
+          "irq": 0
+        }
+      },
+      {
+        "model": "Apple M1 Max",
+        "speed": 2400,
+        "times": {
+          "user": 470360,
+          "nice": 0,
+          "sys": 200130,
+          "idle": 82986490,
+          "irq": 0
+        }
+      }
+    ]
+  },
+  "process": {
+    "pid": 54671,
+    "version": "v23.6.0",
+    "versions": {
+      "node": "23.6.0",
+      "acorn": "8.14.0",
+      "ada": "2.9.2",
+      "amaro": "0.2.1",
+      "ares": "1.34.4",
+      "brotli": "1.1.0",
+      "cjs_module_lexer": "1.4.1",
+      "cldr": "46.0",
+      "icu": "76.1",
+      "llhttp": "9.2.1",
+      "modules": "131",
+      "napi": "10",
+      "nbytes": "0.1.1",
+      "ncrypto": "0.0.1",
+      "nghttp2": "1.64.0",
+      "openssl": "3.5.2",
+      "simdjson": "3.10.1",
+      "simdutf": "5.7.2",
+      "sqlite": "3.47.2",
+      "tz": "2024b",
+      "undici": "6.21.0",
+      "unicode": "16.0",
+      "uv": "1.50.0",
+      "uvwasi": "0.0.21",
+      "v8": "12.9.202.28-node.12",
+      "zlib": "1.2.12"
+    },
+    "execPath": "/opt/homebrew/Cellar/node/23.6.0/bin/node",
+    "execArgv": [],
+    "memoryUsage": {
+      "rss": 36257792,
+      "heapTotal": 5816320,
+      "heapUsed": 4793144,
+      "external": 1576904,
+      "arrayBuffers": 18443
+    },
+    "uptime": 0.027200959
+  },
+  "app": {
+    "name": "YTDownloader",
+    "version": "1.0.0",
+    "path": "/Users/lijianfei/Desktop/ytDownloader/src",
+    "error": "Not running in Electron environment"
+  },
+  "macos": {
+    "displays": "Graphics/Displays:\n\n    Apple M1 Max:\n\n      Chipset Model: Apple M1 Max\n      Type: GPU\n      Bus: Built-In\n      Total Number of Cores: 32\n      Vendor: Apple (0x106b)\n      Metal Support: Metal 3",
+    "metalSupport": true
+  }
+}

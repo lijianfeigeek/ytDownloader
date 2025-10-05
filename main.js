@@ -15,6 +15,9 @@ const path = require("path");
 const { exec } = require("child_process");
 const { promisify } = require("util");
 
+// 导入日志工具
+const { createJobLogger, exportDiagnostics } = require('./src/logs.js');
+
 const execAsync = promisify(exec);
 autoUpdater.autoDownload = false;
 /**@type {BrowserWindow} */
@@ -644,15 +647,32 @@ async function executeJobPipeline(job) {
 		duration: 0
 	};
 
+	// 创建作业日志记录器
+	const logger = createJobLogger(job.id);
+
 	try {
+		// 记录作业开始
+		await logger.info('作业执行开始', {
+			jobId: job.id,
+			url: job.url,
+			outputDir: job.outputDir,
+			options: job.options
+		});
+
 		// 阶段1: 下载视频
-		console.log(`🚀 [${job.id}] 开始下载阶段`);
+		await logger.stageStart('DOWNLOADING', {
+			url: job.url,
+			options: job.options
+		});
+
 		jobQueue.advanceStage(job.id, JobStatus.DOWNLOADING);
 		emitJobProgress(job.id, 'DOWNLOADING', { percent: 0, message: '开始下载视频' });
 		saveJobMetadata(job, 'DOWNLOADING');
 
 		const downloadResult = await download(job, (progress) => {
 			emitJobProgress(job.id, 'DOWNLOADING', progress);
+			// 在同步回调中不使用 await，改为 fire-and-forget 方式
+			logger.progress('DOWNLOADING', progress.percent || 0, progress.message || '下载中', { progress }).catch(console.error);
 		}, {
 			ytDlpPath: job.options?.ytDlpPath,
 			ytDlpInstance: job.options?.ytDlpInstance
@@ -663,10 +683,22 @@ async function executeJobPipeline(job) {
 
 		// 保存下载结果
 		saveJobMetadata(job, 'DOWNLOADING', { filePath: videoPath });
+		await logger.stageComplete('DOWNLOADING', {
+			videoPath,
+			fileSize: fs.existsSync(videoPath) ? fs.statSync(videoPath).size : 0
+		});
 		emitJobProgress(job.id, 'DOWNLOADING', { percent: 100, message: '视频下载完成' });
 
 		// 阶段2: 提取音频
-		console.log(`🎵 [${job.id}] 开始音频提取阶段`);
+		await logger.stageStart('EXTRACTING', {
+			videoPath,
+			outputDir: job.outputDir,
+			options: {
+				bitrate: job.options?.audioBitrate || '192k',
+				generateWav: true
+			}
+		});
+
 		jobQueue.advanceStage(job.id, JobStatus.EXTRACTING);
 		emitJobProgress(job.id, 'EXTRACTING', { percent: 0, message: '开始提取音频' });
 		saveJobMetadata(job, 'EXTRACTING');
@@ -678,6 +710,7 @@ async function executeJobPipeline(job) {
 			codec: 'libmp3lame',
 			onLog: (type, data) => {
 				emitJobLog(job.id, type, data);
+				logger.debug('Audio extraction log', { type, data });
 			},
 			ffmpegPath: job.options?.ffmpegPath,
 			spawnFn: job.options?.spawnFn
@@ -691,10 +724,23 @@ async function executeJobPipeline(job) {
 			wavPath: audioResult.wavPath
 		});
 
+		await logger.stageComplete('EXTRACTING', {
+			mp3Path: audioResult.mp3Path,
+			wavPath: audioResult.wavPath,
+			mp3Size: audioResult.mp3Path && fs.existsSync(audioResult.mp3Path) ? fs.statSync(audioResult.mp3Path).size : 0,
+			wavSize: audioResult.wavPath && fs.existsSync(audioResult.wavPath) ? fs.statSync(audioResult.wavPath).size : 0
+		});
+
 		emitJobProgress(job.id, 'EXTRACTING', { percent: 100, message: '音频提取完成' });
 
 		// 阶段3: 转写语音
-		console.log(`📝 [${job.id}] 开始转写阶段`);
+		await logger.stageStart('TRANSCRIBING', {
+			audioFile: audioResult.wavPath || audioResult.mp3Path,
+			language: job.options?.language || 'auto',
+			translate: job.options?.translate || false,
+			useMetal: job.options?.useMetal
+		});
+
 		jobQueue.advanceStage(job.id, JobStatus.TRANSCRIBING);
 		emitJobProgress(job.id, 'TRANSCRIBING', { percent: 0, message: '开始语音转写' });
 		saveJobMetadata(job, 'TRANSCRIBING');
@@ -707,9 +753,11 @@ async function executeJobPipeline(job) {
 			useMetal: job.options?.useMetal,
 			onProgress: (progress) => {
 				emitJobProgress(job.id, 'TRANSCRIBING', progress);
+				logger.progress('TRANSCRIBING', progress.percent || 0, progress.message || '转写中', { progress });
 			},
 			onLog: (type, data) => {
 				emitJobLog(job.id, type, data);
+				logger.debug('Transcription log', { type, data });
 			},
 			whisperPath: job.options?.whisperPath,
 			model: job.options?.model,
@@ -725,33 +773,24 @@ async function executeJobPipeline(job) {
 			usedMetal: transcribeResult.usedMetal
 		});
 
+		await logger.stageComplete('TRANSCRIBING', {
+			transcriptPath: transcribeResult.transcriptPath,
+			duration: transcribeResult.duration,
+			usedMetal: transcribeResult.usedMetal,
+			transcriptSize: transcribeResult.transcriptPath && fs.existsSync(transcribeResult.transcriptPath) ? fs.statSync(transcribeResult.transcriptPath).size : 0
+		});
+
 		emitJobProgress(job.id, 'TRANSCRIBING', { percent: 100, message: '语音转写完成' });
 
 		// 阶段4: 整理和打包
+		await logger.stageStart('PACKING', {
+			outputs: finalResult.outputs
+		});
+
 		console.log(`📦 [${job.id}] 开始打包阶段`);
 		jobQueue.advanceStage(job.id, JobStatus.PACKING);
 		emitJobProgress(job.id, 'PACKING', { percent: 0, message: '整理输出文件' });
 		saveJobMetadata(job, 'PACKING');
-
-		// 生成日志文件
-		const logs = [];
-		logs.push(`# 作业执行日志 - ${job.id}`);
-		logs.push(`创建时间: ${new Date().toISOString()}`);
-		logs.push(`URL: ${job.url}`);
-		logs.push(`输出目录: ${job.outputDir}`);
-		logs.push(`选项: ${JSON.stringify(job.options, null, 2)}`);
-		logs.push('');
-		logs.push('## 执行结果');
-		logs.push(`- 视频文件: ${finalResult.outputs.video}`);
-		logs.push(`- MP3 音频: ${finalResult.outputs.audio.mp3Path}`);
-		if (finalResult.outputs.audio.wavPath) {
-			logs.push(`- WAV 音频: ${finalResult.outputs.audio.wavPath}`);
-		}
-		logs.push(`- 转写文本: ${finalResult.outputs.transcript}`);
-		logs.push(`- 总耗时: ${((Date.now() - startTime) / 1000).toFixed(2)}s`);
-
-		const logsPath = path.join(job.outputDir, 'logs.txt');
-		fs.writeFileSync(logsPath, logs.join('\n'), 'utf8');
 
 		// 更新最终元数据
 		const finalMetadata = {
@@ -760,12 +799,24 @@ async function executeJobPipeline(job) {
 			duration: (Date.now() - startTime) / 1000,
 			status: 'completed',
 			outputs: finalResult.outputs,
-			logPath: logsPath
+			logPath: logger.getLogFilePath()
 		};
 
 		saveJobMetadata(job, 'COMPLETED', finalMetadata);
 
 		finalResult.duration = (Date.now() - startTime) / 1000;
+
+		await logger.stageComplete('PACKING', {
+			totalDuration: finalResult.duration,
+			outputFiles: Object.values(finalResult.outputs)
+		});
+
+		await logger.info('作业执行完成', {
+			duration: finalResult.duration,
+			outputs: finalResult.outputs,
+			finalMetadata
+		});
+
 		emitJobProgress(job.id, 'PACKING', { percent: 100, message: '作业完成' });
 
 		// 完成作业 - 推进到最终状态
@@ -776,6 +827,14 @@ async function executeJobPipeline(job) {
 
 	} catch (error) {
 		console.error('作业执行失败:', error);
+
+		// 记录错误到日志
+		await logger.stageError(job.stage || 'UNKNOWN', error, {
+			url: job.url,
+			outputDir: job.outputDir,
+			currentStage: job.stage,
+			options: job.options
+		});
 
 		// 保存错误信息到元数据
 		const errorMetadata = {
@@ -1475,6 +1534,72 @@ ipcMain.handle('deps:check', async () => {
 				message: error.message
 			}
 		};
+	}
+});
+
+/**
+ * 导出诊断包
+ */
+ipcMain.handle('job:exportDiagnostics', async (event, jobId, options = {}) => {
+	try {
+		console.log(`[Diagnostics] 开始导出诊断包: ${jobId}`);
+
+		const result = await exportDiagnostics(jobId, {
+			format: options.format || 'zip',
+			includeSystemInfo: options.includeSystemInfo !== false,
+			outputDir: options.outputDir || null
+		});
+
+		if (result.success) {
+			console.log(`[Diagnostics] 诊断包导出成功: ${result.archivePath}`);
+
+			// 发送成功通知到 Renderer
+			if (win) {
+				win.webContents.send('job:diagnostics-exported', {
+					jobId,
+					archivePath: result.archivePath,
+					size: result.size,
+					format: result.format,
+					filesCount: result.filesCount,
+					files: result.files,
+					timestamp: result.timestamp
+				});
+			}
+		} else {
+			console.error(`[Diagnostics] 诊断包导出失败: ${result.error}`);
+
+			// 发送失败通知到 Renderer
+			if (win) {
+				win.webContents.send('job:diagnostics-error', {
+					jobId,
+					error: result.error,
+					timestamp: result.timestamp
+				});
+			}
+		}
+
+		return result;
+
+	} catch (error) {
+		console.error('导出诊断包失败:', error);
+
+		const errorResult = {
+			success: false,
+			error: {
+				code: 'DIAGNOSTICS_EXPORT_ERROR',
+				message: error.message,
+				stack: error.stack
+			},
+			jobId,
+			timestamp: new Date().toISOString()
+		};
+
+		// 发送错误通知到 Renderer
+		if (win) {
+			win.webContents.send('job:diagnostics-error', errorResult);
+		}
+
+		return errorResult;
 	}
 });
 

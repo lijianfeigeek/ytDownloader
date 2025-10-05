@@ -1,0 +1,9 @@
+[2025-10-05T08:13:33.016Z] [INFO] [test_job_1759652013015] [PID:54871] Job logger created {"jobId":"test_job_1759652013015","logFile":"/Users/lijianfei/Desktop/ytDownloader/temp/downloads/test_job_1759652013015/logs.txt"}
+[2025-10-05T08:13:33.017Z] [INFO] [test_job_1759652013015] [PID:54871] 测试信息日志 {"test":true}
+[2025-10-05T08:13:33.028Z] [WARN] [test_job_1759652013015] [PID:54871] 测试警告日志 {"warning":"test warning"}
+[2025-10-05T08:13:33.029Z] [ERROR] [test_job_1759652013015] [PID:54871] 测试错误日志 {"error":"test error"}
+[2025-10-05T08:13:33.029Z] [DEBUG] [test_job_1759652013015] [PID:54871] 测试调试日志 {"debug":"test debug"}
+[2025-10-05T08:13:33.029Z] [INFO] [test_job_1759652013015] [PID:54871] Stage started: TEST_STAGE {"stage":"test","event":"stage_start"}
+[2025-10-05T08:13:33.029Z] [INFO] [test_job_1759652013015] [PID:54871] Progress: 50% - 测试进度50% {"stage":"TEST_STAGE","percentage":50,"event":"progress","percent":50}
+[2025-10-05T08:13:33.030Z] [INFO] [test_job_1759652013015] [PID:54871] Stage completed: TEST_STAGE {"stage":"TEST_STAGE","event":"stage_complete","result":"success"}
+[2025-10-05T08:13:33.030Z] [ERROR] [test_job_1759652013015] [PID:54871] Stage failed: ERROR_STAGE {"stage":"ERROR_STAGE","event":"stage_error","error":{"message":"测试错误","stack":"Error: 测试错误\n    at testLogging (/Users/lijianfei/Desktop/ytDownloader/test-logs.js:38:27)\n    at async /Users/lijianfei/Desktop/ytDownloader/test-logs.js:127:23","code":"TEST_ERROR"},"context":"test context"}

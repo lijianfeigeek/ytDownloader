@@ -283,6 +283,17 @@ function createJobElement(job) {
         actions.appendChild(cancelBtn);
     }
 
+    // 导出诊断包按钮（仅对已完成或失败的作业）
+    if ([JobStatus.COMPLETED, JobStatus.FAILED].includes(job.status)) {
+        const exportDiagnosticsBtn = document.createElement('button');
+        exportDiagnosticsBtn.className = 'blueBtn';
+        exportDiagnosticsBtn.style.padding = '5px 10px';
+        exportDiagnosticsBtn.style.fontSize = 'small';
+        exportDiagnosticsBtn.textContent = '导出诊断包';
+        exportDiagnosticsBtn.onclick = () => exportDiagnostics(job);
+        actions.appendChild(exportDiagnosticsBtn);
+    }
+
     // 清理按钮（仅对已完成作业）
     if ([JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED].includes(job.status)) {
         const cleanupBtn = document.createElement('button');
@@ -474,6 +485,57 @@ async function cleanupJob(job) {
     } catch (error) {
         addLog(`作业清理异常: ${error.message}`);
         showToast(`清理异常: ${error.message}`, 'error');
+    }
+}
+
+/**
+ * 格式化文件大小
+ * @param {number} bytes - 字节数
+ * @returns {string} 格式化后的文件大小
+ */
+function formatFileSize(bytes) {
+    if (bytes === 0) return '0 B';
+
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+}
+
+/**
+ * 导出诊断包
+ * @param {Object} job - 作业对象
+ */
+async function exportDiagnostics(job) {
+    try {
+        // 显示导出中的提示
+        showToast('正在导出诊断包...', 'info');
+        addLog(`开始导出诊断包: ${job.id}`);
+
+        const result = await ipcRenderer.invoke('job:exportDiagnostics', job.id, {
+            format: 'zip',
+            includeSystemInfo: true
+        });
+
+        if (result.success) {
+            const sizeText = formatFileSize(result.size);
+            addLog(`诊断包导出成功: ${result.archivePath} (${sizeText})`);
+            showToast(`诊断包导出成功 (${sizeText})`, 'success');
+
+            // 询问是否打开文件所在目录
+            setTimeout(() => {
+                if (confirm('诊断包已导出成功，是否打开文件所在目录？')) {
+                    openJobDirectory(job);
+                }
+            }, 1000);
+        } else {
+            addLog(`诊断包导出失败: ${result.error.message || result.error}`);
+            showToast(`导出失败: ${result.error.message || result.error}`, 'error');
+        }
+    } catch (error) {
+        addLog(`诊断包导出异常: ${error.message}`);
+        showToast(`导出异常: ${error.message}`, 'error');
     }
 }
 
@@ -846,6 +908,18 @@ function initializeEventListeners() {
                 updateJobList();
             }
         }
+    });
+
+    // 诊断包导出成功事件
+    ipcRenderer.on('job:diagnostics-exported', (event, data) => {
+        addLog(`[${data.jobId}] 诊断包导出成功: ${data.archivePath} (${formatFileSize(data.size)})`);
+        showToast(`诊断包导出成功 (${formatFileSize(data.size)})`, 'success');
+    });
+
+    // 诊断包导出错误事件
+    ipcRenderer.on('job:diagnostics-error', (event, data) => {
+        addLog(`[${data.jobId}] 诊断包导出失败: ${data.error.message || data.error}`);
+        showToast(`诊断包导出失败: ${data.error.message || data.error}`, 'error');
     });
 }
 
