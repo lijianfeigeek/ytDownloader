@@ -150,7 +150,7 @@ class JobQueue {
 
     const now = new Date().toISOString();
     const job = {
-      id: generateJobId(),
+      id: jobData.id || generateJobId(),
       url: jobData.url,
       outputDir: jobData.outputDir,
       options: {
@@ -199,6 +199,15 @@ class JobQueue {
    */
   get(jobId) {
     return this.jobs.get(jobId) || null;
+  }
+
+  /**
+   * 获取作业信息 (get方法的别名，提供更明确的命名)
+   * @param {string} jobId - 作业ID
+   * @returns {Object|null} 作业对象，不存在返回null
+   */
+  getJob(jobId) {
+    return this.get(jobId);
   }
 
   /**
