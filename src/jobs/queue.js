@@ -83,7 +83,7 @@ const VALID_TRANSITIONS = {
   [JobStatus.TRANSCRIBING]: [JobStatus.PACKING, JobStatus.FAILED, JobStatus.CANCELLED],
   [JobStatus.PACKING]: [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED],
   [JobStatus.COMPLETED]: [], // 终态
-  [JobStatus.FAILED]: [], // 终态
+  [JobStatus.FAILED]: [JobStatus.PENDING], // 允许失败后重试
   [JobStatus.CANCELLED]: [] // 终态
 };
 

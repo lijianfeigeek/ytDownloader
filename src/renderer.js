@@ -1513,6 +1513,10 @@ getId("playlistWin").addEventListener("click", () => {
 	ipcRenderer.send("load-win", __dirname + "/playlist.html");
 });
 
+getId("transcribeWin").addEventListener("click", () => {
+	closeMenu();
+	ipcRenderer.send("load-win", __dirname + "/transcribe.html");
+});
 getId("compressorWin").addEventListener("click", () => {
 	closeMenu();
 	ipcRenderer.send("load-win", __dirname + "/compressor.html");

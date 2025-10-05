@@ -12,6 +12,10 @@ const {autoUpdater} = require("electron-updater");
 process.env.ELECTRON_DISABLE_SECURITY_WARNINGS = "true";
 const fs = require("fs");
 const path = require("path");
+const { exec } = require("child_process");
+const { promisify } = require("util");
+
+const execAsync = promisify(exec);
 autoUpdater.autoDownload = false;
 /**@type {BrowserWindow} */
 let win = null;
@@ -53,6 +57,9 @@ function createWindow() {
 	win.loadFile("html/index.html");
 	// win.setMenu(null)
 	win.show();
+
+	// 设置作业事件转发（在win对象创建后）
+	setupJobEventForwarding();
 
 	autoUpdater.checkForUpdates().then(result => {
 		// Removing unnecesary files for windows
@@ -467,6 +474,32 @@ const { transcribe } = require('./src/jobs/transcribe');
 const jobQueue = new JobQueueClass();
 
 /**
+ * 设置事件监听器，将队列事件转发到 Renderer
+ */
+function setupJobEventForwarding() {
+	jobQueue.subscribe((event) => {
+		if (!win || !win.webContents || win.isDestroyed()) {
+			return;
+		}
+
+		switch (event.type) {
+			case 'job:stage-changed':
+				console.log(`[JobQueue] 发送状态变更事件: ${event.jobId} ${event.oldStatus} → ${event.newStatus}`);
+				win.webContents.send('job:stage-changed', {
+					jobId: event.jobId,
+					oldStatus: event.oldStatus,
+					newStatus: event.newStatus,
+					timestamp: event.timestamp
+				});
+				break;
+			case 'job:progress-updated':
+				// 这个事件已经通过 emitJobProgress 处理，这里忽略
+				break;
+		}
+	});
+}
+
+/**
  * 生成唯一作业 ID
  * @returns {string} 作业 ID
  */
@@ -575,7 +608,24 @@ function emitJobResult(jobId, result) {
 	};
 
 	if (win && win.webContents && !win.isDestroyed()) {
+		// 发送通用结果事件
 		win.webContents.send('job:result', payload);
+
+		// 根据状态发送专用事件
+		if (result.status === 'completed') {
+			win.webContents.send('job:completed', {
+				jobId,
+				result: result.outputs || {},
+				duration: result.duration || 0,
+				timestamp: payload.timestamp
+			});
+		} else if (result.status === 'failed') {
+			win.webContents.send('job:failed', {
+				jobId,
+				error: result.error || null,
+				timestamp: payload.timestamp
+			});
+		}
 	}
 }
 
@@ -1036,10 +1086,57 @@ ipcMain.handle('job:get', async (event, jobId) => {
 });
 
 /**
- * 清理已完成的作业
+ * 清理作业（支持单个作业清理或批量清理）
  */
-ipcMain.handle('job:cleanup', async (event, options = {}) => {
+ipcMain.handle('job:cleanup', async (event, param) => {
 	try {
+		// 如果传入的是字符串，则作为单个作业ID处理
+		if (typeof param === 'string') {
+			const jobId = param;
+
+			if (!jobId) {
+				return {
+					success: false,
+					error: {
+						code: 'INVALID_JOB_ID',
+						message: '作业 ID 不能为空'
+					}
+				};
+			}
+
+			const job = jobQueue.getJob(jobId);
+			if (!job) {
+				return {
+					success: false,
+					error: {
+						code: 'JOB_NOT_FOUND',
+						message: '未找到指定的作业'
+					}
+				};
+			}
+
+			// 只允许清理终态作业（已完成、失败、取消）
+			if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(job.status)) {
+				return {
+					success: false,
+					error: {
+						code: 'JOB_NOT_TERMINAL',
+						message: '只能清理已完成、失败或取消的作业'
+					}
+				};
+			}
+
+			const success = jobQueue.remove(jobId);
+
+			return {
+				success: true,
+				cleanedCount: success ? 1 : 0,
+				message: success ? `已清理作业 ${jobId}` : `清理作业 ${jobId} 失败`
+			};
+		}
+
+		// 如果传入的是对象，则作为批量清理选项处理
+		const options = param || {};
 		const jobs = jobQueue.getAll();
 		const { keepCompleted = 5, keepFailed = 10 } = options;
 
@@ -1086,6 +1183,225 @@ ipcMain.handle('job:cleanup', async (event, options = {}) => {
 			success: false,
 			error: {
 				code: 'CLEANUP_JOBS_ERROR',
+				message: error.message
+			}
+		};
+	}
+});
+
+// 转写页面专用的 IPC 处理器
+/**
+ * 打开作业目录
+ */
+ipcMain.handle('job:openDirectory', async (event, jobId) => {
+	try {
+		const job = jobQueue.get(jobId);
+		if (!job) {
+			return {
+				success: false,
+				error: {
+					code: 'JOB_NOT_FOUND',
+					message: '作业不存在'
+				}
+			};
+		}
+
+		await shell.openPath(job.outputDir);
+		return { success: true };
+
+	} catch (error) {
+		console.error('打开作业目录失败:', error);
+		return {
+			success: false,
+			error: {
+				code: 'OPEN_DIRECTORY_ERROR',
+				message: error.message
+			}
+		};
+	}
+});
+
+/**
+ * 重试失败的作业
+ */
+ipcMain.handle('job:retry', async (event, jobId) => {
+	try {
+		const job = jobQueue.get(jobId);
+		if (!job) {
+			return {
+				success: false,
+				error: {
+					code: 'JOB_NOT_FOUND',
+					message: '作业不存在'
+				}
+			};
+		}
+
+		if (job.status !== 'FAILED') {
+			return {
+				success: false,
+				error: {
+					code: 'INVALID_JOB_STATUS',
+					message: '只能重试失败的作业'
+				}
+			};
+		}
+
+		// 重置作业状态为 PENDING
+		console.log(`[JobRetry] 重试作业 ${jobId}，重置状态为 PENDING`);
+		jobQueue.advanceStage(jobId, 'PENDING');
+		job.error = null;
+
+		// 重新执行作业
+		console.log(`[JobRetry] 开始重新执行作业 ${jobId}`);
+		executeJobPipeline(job);
+
+		return { success: true };
+
+	} catch (error) {
+		console.error('重试作业失败:', error);
+		return {
+			success: false,
+			error: {
+				code: 'RETRY_JOB_ERROR',
+				message: error.message
+			}
+		};
+	}
+});
+
+/**
+ * 选择目录对话框
+ */
+ipcMain.handle('dialog:selectDirectory', async () => {
+	try {
+		const result = await dialog.showOpenDialog(mainWindow, {
+			properties: ['openDirectory'],
+			title: '选择输出目录'
+		});
+
+		return result;
+
+	} catch (error) {
+		console.error('选择目录对话框失败:', error);
+		throw error;
+	}
+});
+
+/**
+ * 获取默认下载目录
+ */
+ipcMain.handle('app:getDownloadsPath', async () => {
+	try {
+		return app.getPath('downloads');
+	} catch (error) {
+		console.error('获取下载目录失败:', error);
+		throw error;
+	}
+});
+
+/**
+ * 打开应用下载目录
+ */
+ipcMain.handle('app:openDownloadsFolder', async () => {
+	try {
+		const downloadsPath = path.join(app.getPath('downloads'), 'ytDownloader');
+
+		// 确保目录存在
+		if (!fs.existsSync(downloadsPath)) {
+			fs.mkdirSync(downloadsPath, { recursive: true });
+		}
+
+		await shell.openPath(downloadsPath);
+		return { success: true };
+
+	} catch (error) {
+		console.error('打开下载目录失败:', error);
+		return {
+			success: false,
+			error: {
+				code: 'OPEN_DOWNLOADS_ERROR',
+				message: error.message
+			}
+		};
+	}
+});
+
+/**
+ * 检查离线依赖
+ */
+ipcMain.handle('deps:check', async () => {
+	try {
+		const dependencies = [
+			{
+				name: 'yt-dlp',
+				command: 'yt-dlp --version',
+				available: false,
+				version: null,
+				path: null
+			},
+			{
+				name: 'ffmpeg',
+				command: 'ffmpeg -version',
+				available: false,
+				version: null,
+				path: null
+			},
+			{
+				name: 'whisper.cpp',
+				command: path.join(__dirname, '../resources/runtime/whisper/whisper --help'),
+				available: false,
+				version: null,
+				path: null
+			}
+		];
+
+		// 检查每个依赖
+		for (const dep of dependencies) {
+			try {
+				const { stdout } = await execAsync(dep.command);
+				dep.available = true;
+
+				// 尝试提取版本信息
+				if (dep.name === 'yt-dlp') {
+					const match = stdout.match(/(\d{4}\.\d{2}\.\d{2})/);
+					dep.version = match ? match[1] : 'Unknown';
+				} else if (dep.name === 'ffmpeg') {
+					const match = stdout.match(/version ([\d.]+)/i);
+					dep.version = match ? match[1] : 'Unknown';
+				} else if (dep.name === 'whisper.cpp') {
+					dep.version = 'ggml-large-v3-turbo';
+					dep.path = path.join(__dirname, '../resources/runtime/whisper/whisper');
+				}
+
+			} catch (error) {
+				// 依赖不可用
+				dep.available = false;
+			}
+		}
+
+		// 检查模型文件
+		const modelPath = path.join(__dirname, '../resources/runtime/whisper/models/ggml-large-v3-turbo-q5_0.bin');
+		const modelDep = {
+			name: 'Whisper Model (Large V3 Turbo)',
+			available: fs.existsSync(modelPath),
+			version: 'ggml-large-v3-turbo-q5_0',
+			path: modelPath
+		};
+
+		dependencies.push(modelDep);
+
+		return {
+			success: true,
+			dependencies
+		};
+
+	} catch (error) {
+		console.error('检查依赖失败:', error);
+		return {
+			success: false,
+			error: {
+				code: 'DEPS_CHECK_ERROR',
 				message: error.message
 			}
 		};

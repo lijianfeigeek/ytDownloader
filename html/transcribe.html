@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en" theme="dark">
+
+<head>
+    <header></header>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title i18n="transcribe.title">离线转写 - YtDownloader</title>
+    <link rel="stylesheet" href="../assets/css/index.css">
+    <script src="../src/common.js" defer></script>
+    <script src="../src/transcribe.js" defer></script>
+    <!-- Translating -->
+    <script>window.i18n = new (require('../translations/i18n'));</script>
+</head>
+
+<body>
+    <!-- 菜单图标和主题切换 -->
+    <img id="menuIcon" src="../images/menu.png" alt="Menu">
+    <div id="menu">
+        <select id="themeToggle">
+            <option value="dark">🌙 Dark</option>
+            <option value="light">☀️ Light</option>
+            <option value="frappe">🌊 Frappe</option>
+            <option value="onedark">🌲 OneDark</option>
+            <option value="matrix">💊 Matrix</option>
+            <option value="github">🐙 GitHub</option>
+            <option value="latte">🌻 Latte</option>
+            <option value="solarized-dark">🌅 Solarized Dark</option>
+        </select>
+        <a class="menuItem" id="backToMain">← 返回主页</a>
+        <a class="menuItem" id="openDownloadsFolder">打开下载目录</a>
+    </div>
+
+    <div class="container">
+        <h1 i18n="transcribe.heading">离线视频转写</h1>
+        <p i18n="transcribe.description">下载视频并使用 Whisper AI 进行本地转写</p>
+
+        <!-- 作业创建表单 -->
+        <div class="container" style="margin-top: 20px;">
+            <h2 i18n="transcribe.createJob">创建转写作业</h2>
+            <form id="job-form">
+                <!-- URL 输入 -->
+                <div style="margin-bottom: 15px; text-align: left;">
+                    <label for="url-input" i18n="transcribe.urlLabel">视频 URL:</label><br>
+                    <input type="text"
+                           id="url-input"
+                           placeholder="https://www.youtube.com/watch?v=..."
+                           style="width: 100%; max-width: 500px; padding: 10px; margin-top: 5px; border-radius: 5px; border: none; background-color: var(--box-toggle); color: var(--text); font-family: 'JetBrains', monospace;"
+                           required>
+                </div>
+
+                <!-- 输出目录 -->
+                <div style="margin-bottom: 15px; text-align: left;">
+                    <label for="output-dir-input" i18n="transcribe.outputDirLabel">输出目录:</label><br>
+                    <div style="display: flex; gap: 10px; align-items: center; margin-top: 5px;">
+                        <input type="text"
+                               id="output-dir-input"
+                               readonly
+                               style="flex: 1; padding: 10px; border-radius: 5px; border: none; background-color: var(--box-toggle); color: var(--text); font-family: 'JetBrains', monospace;">
+                        <button type="button"
+                                id="select-output-dir"
+                                class="blueBtn"
+                                style="padding: 10px 15px; margin: 0;">
+                            选择目录
+                        </button>
+                    </div>
+                </div>
+
+                <!-- 语言选择 -->
+                <div style="margin-bottom: 15px; text-align: left;">
+                    <label for="language-select" i18n="transcribe.languageLabel">转写语言:</label><br>
+                    <select id="language-select"
+                            style="width: 200px; padding: 10px; margin-top: 5px; border-radius: 5px; border: none; background-color: var(--box-toggle); color: var(--text); font-family: 'Ubuntu';">
+                        <option value="auto" i18n="transcribe.autoDetect">自动检测</option>
+                        <option value="zh">中文</option>
+                        <option value="en">English</option>
+                        <option value="ja">日本語</option>
+                        <option value="ko">한국어</option>
+                        <option value="es">Español</option>
+                        <option value="fr">Français</option>
+                        <option value="de">Deutsch</option>
+                        <option value="it">Italiano</option>
+                        <option value="pt">Português</option>
+                        <option value="ru">Русский</option>
+                    </select>
+                </div>
+
+                <!-- 选项 -->
+                <div style="margin-bottom: 20px; text-align: left;">
+                    <label style="display: flex; align-items: center; cursor: pointer;">
+                        <input type="checkbox"
+                               id="keep-video-checkbox"
+                               class="cb"
+                               style="margin-right: 8px;">
+                        <span i18n="transcribe.keepVideo">保留视频文件</span>
+                    </label>
+                </div>
+
+                <!-- 提交按钮 -->
+                <button type="submit"
+                        class="submitBtn"
+                        id="submit-job-btn"
+                        style="width: 200px;">
+                    <span i18n="transcribe.submitBtn">开始转写</span>
+                </button>
+            </form>
+        </div>
+
+        <!-- 依赖状态检查 -->
+        <div class="container" id="deps-status" style="margin-top: 20px; display: none;">
+            <h3 i18n="transcribe.depsCheck">依赖检查</h3>
+            <div id="deps-list"></div>
+        </div>
+
+        <!-- 作业列表 -->
+        <div class="container" style="margin-top: 30px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                <h2 i18n="transcribe.jobList">作业列表</h2>
+                <button id="toggle-logs-btn" class="blueBtn" style="padding: 8px 12px; font-size: medium;">
+                    <span i18n="transcribe.toggleLogs">显示日志</span>
+                </button>
+            </div>
+
+            <div id="job-list-container">
+                <ul id="job-list" style="list-style: none; padding: 0; margin: 0;">
+                    <!-- 作业项目将在这里动态生成 -->
+                </ul>
+
+                <div id="no-jobs-message" style="text-align: center; padding: 40px; color: var(--text); opacity: 0.6;">
+                    <p i18n="transcribe.noJobs">暂无作业</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 日志面板 -->
+        <div class="container" id="log-panel" style="margin-top: 20px; display: none;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3 i18n="transcribe.logs">实时日志</h3>
+                <button id="clear-logs-btn" class="blueBtn" style="padding: 5px 10px; font-size: small;">
+                    <span i18n="transcribe.clearLogs">清空</span>
+                </button>
+            </div>
+            <pre id="job-log"
+                 style="background-color: var(--box-toggle);
+                        color: var(--text);
+                        padding: 15px;
+                        border-radius: 8px;
+                        text-align: left;
+                        font-family: 'JetBrains', monospace;
+                        font-size: small;
+                        max-height: 300px;
+                        overflow-y: auto;
+                        white-space: pre-wrap;
+                        margin: 0;"></pre>
+        </div>
+    </div>
+
+    <!-- 错误提示 -->
+    <div id="error-toast"
+         style="position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: var(--redBtn);
+                color: white;
+                padding: 15px;
+                border-radius: 8px;
+                display: none;
+                z-index: 1000;
+                max-width: 300px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+    </div>
+
+    <!-- 成功提示 -->
+    <div id="success-toast"
+         style="position: fixed;
+                top: 20px;
+                right: 20px;
+                background-color: var(--greenBtn);
+                color: white;
+                padding: 15px;
+                border-radius: 8px;
+                display: none;
+                z-index: 1000;
+                max-width: 300px;
+                box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+    </div>
+</body>
+
+</html>
