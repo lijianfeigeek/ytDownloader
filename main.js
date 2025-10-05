@@ -1328,6 +1328,76 @@ ipcMain.handle('app:openDownloadsFolder', async () => {
 });
 
 /**
+ * 运行 setup-offline 脚本
+ */
+ipcMain.handle('app:runSetupOffline', async () => {
+	try {
+		const { spawn } = require('child_process');
+		const scriptPath = path.join(__dirname, 'scripts', 'setup-offline.js');
+
+		// 检查脚本是否存在
+		if (!fs.existsSync(scriptPath)) {
+			return {
+				success: false,
+				error: {
+					code: 'SCRIPT_NOT_FOUND',
+					message: 'setup-offline.js 脚本不存在'
+				}
+			};
+		}
+
+		// 非阻塞方式运行脚本
+		const child = spawn('node', [scriptPath], {
+			stdio: ['ignore', 'pipe', 'pipe'],
+			detached: true,
+			shell: true
+		});
+
+		let stdout = '';
+		let stderr = '';
+
+		child.stdout?.on('data', (data) => {
+			stdout += data.toString();
+		});
+
+		child.stderr?.on('data', (data) => {
+			stderr += data.toString();
+		});
+
+		child.on('close', (code) => {
+			if (code === 0) {
+				console.log('[setup-offline] 脚本执行成功');
+				console.log('[setup-offline] 输出:', stdout);
+			} else {
+				console.error('[setup-offline] 脚本执行失败，退出码:', code);
+				console.error('[setup-offline] 错误输出:', stderr);
+			}
+		});
+
+		child.on('error', (error) => {
+			console.error('[setup-offline] 脚本执行错误:', error);
+		});
+
+		// 不等待脚本完成，立即返回
+		return {
+			success: true,
+			message: 'setup-offline 脚本已在后台运行',
+			childPid: child.pid
+		};
+
+	} catch (error) {
+		console.error('运行 setup-offline 脚本失败:', error);
+		return {
+			success: false,
+			error: {
+				code: 'RUN_SETUP_OFFLINE_ERROR',
+				message: error.message
+			}
+		};
+	}
+});
+
+/**
  * 检查离线依赖
  */
 ipcMain.handle('deps:check', async () => {

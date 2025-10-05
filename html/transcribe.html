@@ -98,12 +98,21 @@
                 </div>
 
                 <!-- 提交按钮 -->
-                <button type="submit"
-                        class="submitBtn"
-                        id="submit-job-btn"
-                        style="width: 200px;">
-                    <span i18n="transcribe.submitBtn">开始转写</span>
-                </button>
+                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                    <button type="submit"
+                            class="submitBtn"
+                            id="submit-job-btn"
+                            style="flex: 1; min-width: 150px;">
+                        <span i18n="transcribe.submitBtn">开始转写</span>
+                    </button>
+                    <button type="button"
+                            class="blueBtn"
+                            id="check-deps-btn"
+                            onclick="checkDependencies()"
+                            style="flex: 1; min-width: 150px;">
+                        <span i18n="transcribe.checkDeps">检查离线依赖</span>
+                    </button>
+                </div>
             </form>
         </div>
 
@@ -184,6 +193,86 @@
                 z-index: 1000;
                 max-width: 300px;
                 box-shadow: 0 4px 12px rgba(0,0,0,0.3);">
+    </div>
+
+    <!-- 依赖检查结果模态框 -->
+    <div id="deps-modal"
+         style="position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background-color: rgba(0, 0, 0, 0.7);
+                display: none;
+                z-index: 2000;
+                justify-content: center;
+                align-items: center;">
+        <div style="background-color: var(--box-separation);
+                     color: var(--text);
+                     padding: 30px;
+                     border-radius: 12px;
+                     max-width: 600px;
+                     width: 90%;
+                     max-height: 80vh;
+                     overflow-y: auto;
+                     box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+                     position: relative;">
+
+            <!-- 关闭按钮 -->
+            <button id="close-deps-modal"
+                    style="position: absolute;
+                           top: 15px;
+                           right: 15px;
+                           background: none;
+                           border: none;
+                           color: var(--text);
+                           font-size: 24px;
+                           cursor: pointer;
+                           padding: 5px;
+                           opacity: 0.7;"
+                    onmouseover="this.style.opacity='1'"
+                    onmouseout="this.style.opacity='0.7'">
+                ×
+            </button>
+
+            <!-- 标题 -->
+            <h2 style="margin-top: 0; margin-bottom: 20px; color: var(--text);">
+                <span i18n="transcribe.depsCheckTitle">离线依赖检查结果</span>
+            </h2>
+
+            <!-- 检查时间 -->
+            <div id="deps-check-time" style="margin-bottom: 20px; opacity: 0.7; font-size: small;">
+                <!-- 检查时间将在这里显示 -->
+            </div>
+
+            <!-- 依赖列表 -->
+            <div id="deps-results-list">
+                <!-- 依赖检查结果将在这里显示 -->
+            </div>
+
+            <!-- 操作建议 -->
+            <div id="deps-recommendations" style="margin-top: 20px; padding: 15px; background-color: var(--box-toggle); border-radius: 8px;">
+                <h4 style="margin-top: 0; margin-bottom: 10px;">
+                    <span i18n="transcribe.depsRecommendations">操作建议</span>
+                </h4>
+                <div id="deps-recommendations-content">
+                    <!-- 操作建议将在这里显示 -->
+                </div>
+            </div>
+
+            <!-- 操作按钮 -->
+            <div style="margin-top: 20px; text-align: right;">
+                <button id="run-setup-offline-btn"
+                        class="blueBtn"
+                        style="margin-right: 10px;">
+                    <span i18n="transcribe.runSetupOffline">运行 setup-offline</span>
+                </button>
+                <button id="close-deps-modal-btn"
+                        class="secondaryBtn">
+                    <span i18n="transcribe.close">关闭</span>
+                </button>
+            </div>
+        </div>
     </div>
 </body>
 

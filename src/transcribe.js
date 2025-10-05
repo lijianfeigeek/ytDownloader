@@ -31,6 +31,7 @@ const elements = {
     languageSelect: null,
     keepVideoCheckbox: null,
     submitJobBtn: null,
+    checkDepsBtn: null,
     jobList: null,
     jobLog: null,
     logPanel: null,
@@ -39,9 +40,23 @@ const elements = {
     noJobsMessage: null,
     depsStatus: null,
     depsList: null,
+    depsModal: null,
+    depsResultsList: null,
+    depsCheckTime: null,
+    depsRecommendationsContent: null,
+    closeDepsModal: null,
+    closeDepsModalBtn: null,
+    runSetupOfflineBtn: null,
     errorToast: null,
     successToast: null
 };
+
+/**
+ * 获取DOM元素的辅助函数
+ */
+function getId(id) {
+    return document.getElementById(id);
+}
 
 /**
  * 初始化 DOM 元素引用
@@ -53,6 +68,7 @@ function initializeElements() {
     elements.languageSelect = getId('language-select');
     elements.keepVideoCheckbox = getId('keep-video-checkbox');
     elements.submitJobBtn = getId('submit-job-btn');
+    elements.checkDepsBtn = getId('check-deps-btn');
     elements.jobList = getId('job-list');
     elements.jobLog = getId('job-log');
     elements.logPanel = getId('log-panel');
@@ -61,6 +77,13 @@ function initializeElements() {
     elements.noJobsMessage = getId('no-jobs-message');
     elements.depsStatus = getId('deps-status');
     elements.depsList = getId('deps-list');
+    elements.depsModal = getId('deps-modal');
+    elements.depsResultsList = getId('deps-results-list');
+    elements.depsCheckTime = getId('deps-check-time');
+    elements.depsRecommendationsContent = getId('deps-recommendations-content');
+    elements.closeDepsModal = getId('close-deps-modal');
+    elements.closeDepsModalBtn = getId('close-deps-modal-btn');
+    elements.runSetupOfflineBtn = getId('run-setup-offline-btn');
     elements.errorToast = getId('error-toast');
     elements.successToast = getId('success-toast');
 }
@@ -484,26 +507,170 @@ function clearLogs() {
  */
 async function checkDependencies() {
     try {
+        // 显示加载状态
+        showDepsModalLoading();
+
+        // 调用依赖检查（非阻塞）
         const result = await ipcRenderer.invoke('deps:check');
+
         if (result.success) {
-            let html = '';
-            result.dependencies.forEach(dep => {
-                const statusClass = dep.available ? 'status-completed' : 'status-failed';
-                const statusText = dep.available ? '✓ 可用' : '✗ 缺失';
-                html += `<div style="margin-bottom: 8px;">
-                    <strong>${dep.name}:</strong>
-                    <span class="${statusClass}">${statusText}</span>
-                    ${dep.version ? ` (${dep.version})` : ''}
-                    ${dep.path ? `<br><small style="opacity: 0.7;">路径: ${dep.path}</small>` : ''}
-                </div>`;
-            });
-            elements.depsList.innerHTML = html;
-            elements.depsStatus.style.display = 'block';
+            renderDepsCheckResults(result.dependencies);
+            showDepsModal();
         } else {
+            showToast(`依赖检查失败: ${result.error.message}`, 'error');
             addLog(`依赖检查失败: ${result.error.message}`);
         }
     } catch (error) {
+        showToast(`依赖检查异常: ${error.message}`, 'error');
         addLog(`依赖检查异常: ${error.message}`);
+    }
+}
+
+/**
+ * 显示依赖检查模态框加载状态
+ */
+function showDepsModalLoading() {
+    const modal = getId('deps-modal');
+    const resultsList = getId('deps-results-list');
+    const checkTime = getId('deps-check-time');
+    const recommendations = getId('deps-recommendations-content');
+
+    // 显示加载状态
+    resultsList.innerHTML = '<div style="text-align: center; padding: 20px;">正在检查依赖...</div>';
+    checkTime.textContent = '';
+    recommendations.innerHTML = '';
+
+    // 显示模态框
+    modal.style.display = 'flex';
+}
+
+/**
+ * 渲染依赖检查结果
+ */
+function renderDepsCheckResults(dependencies) {
+    const resultsList = getId('deps-results-list');
+    const checkTime = getId('deps-check-time');
+    const recommendations = getId('deps-recommendations-content');
+
+    // 显示检查时间
+    const now = new Date();
+    checkTime.textContent = `检查时间: ${now.toLocaleString()}`;
+
+    // 渲染依赖列表
+    let html = '';
+    let missingDeps = [];
+    let availableDeps = [];
+
+    dependencies.forEach(dep => {
+        const statusIcon = dep.available ? '✅' : '❌';
+        const statusClass = dep.available ? 'status-completed' : 'status-failed';
+        const statusText = dep.available ? '已安装' : '缺失';
+
+        html += `<div style="margin-bottom: 15px; padding: 10px; border: 1px solid var(--box-separation); border-radius: 8px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px;">
+                <strong>${statusIcon} ${dep.name}</strong>
+                <span class="${statusClass}" style="font-weight: bold;">${statusText}</span>
+            </div>
+            ${dep.version ? `<div style="font-size: small; opacity: 0.8; margin-bottom: 3px;">版本: ${dep.version}</div>` : ''}
+            ${dep.path ? `<div style="font-size: small; opacity: 0.7; word-break: break-all;">路径: ${dep.path}</div>` : ''}
+        </div>`;
+
+        if (dep.available) {
+            availableDeps.push(dep);
+        } else {
+            missingDeps.push(dep);
+        }
+    });
+
+    resultsList.innerHTML = html;
+
+    // 生成操作建议
+    let recommendationsHtml = '';
+
+    if (missingDeps.length === 0) {
+        recommendationsHtml = '<div style="color: var(--greenBtn);">🎉 所有依赖都已安装，可以正常使用离线转写功能！</div>';
+    } else {
+        recommendationsHtml = `<div style="margin-bottom: 10px;">
+            <strong>发现 ${missingDeps.length} 个缺失的依赖：</strong>
+            <ul style="margin: 5px 0; padding-left: 20px;">
+                ${missingDeps.map(dep => `<li>${dep.name}</li>`).join('')}
+            </ul>
+        </div>`;
+
+        recommendationsHtml += '<div style="margin-bottom: 10px;">';
+
+        if (missingDeps.some(dep => dep.name === 'yt-dlp')) {
+            recommendationsHtml += '<div>• <strong>yt-dlp:</strong> 请访问 <a href="https://github.com/yt-dlp/yt-dlp" target="_blank" style="color: var(--blueBtn);">yt-dlp GitHub</a> 下载并安装</div>';
+        }
+
+        if (missingDeps.some(dep => dep.name === 'ffmpeg')) {
+            recommendationsHtml += '<div>• <strong>ffmpeg:</strong> 请访问 <a href="https://ffmpeg.org/download.html" target="_blank" style="color: var(--blueBtn);">FFmpeg 官网</a> 下载并安装</div>';
+        }
+
+        if (missingDeps.some(dep => dep.name === 'whisper.cpp' || dep.name.includes('Whisper Model'))) {
+            recommendationsHtml += '<div>• <strong>whisper.cpp:</strong> 运行 <code>npm run setup-offline</code> 自动下载和配置</div>';
+        }
+
+        recommendationsHtml += '</div>';
+
+        recommendationsHtml += '<div style="background-color: rgba(255, 193, 7, 0.1); border-left: 4px solid var(--yellowBtn); padding: 8px; margin-top: 10px;">';
+        recommendationsHtml += '<strong>💡 提示:</strong> 运行 "setup-offline" 脚本可以自动处理大部分依赖问题';
+        recommendationsHtml += '</div>';
+    }
+
+    recommendations.innerHTML = recommendationsHtml;
+
+    // 根据是否有缺失依赖来显示/隐藏 setup-offline 按钮
+    const setupOfflineBtn = getId('run-setup-offline-btn');
+    setupOfflineBtn.style.display = missingDeps.length > 0 ? 'inline-block' : 'none';
+}
+
+/**
+ * 显示依赖检查模态框
+ */
+function showDepsModal() {
+    const modal = getId('deps-modal');
+    modal.style.display = 'flex';
+}
+
+/**
+ * 隐藏依赖检查模态框
+ */
+function hideDepsModal() {
+    const modal = getId('deps-modal');
+    modal.style.display = 'none';
+}
+
+/**
+ * 运行 setup-offline 脚本
+ */
+async function runSetupOffline() {
+    try {
+        hideDepsModal();
+        showToast('正在运行 setup-offline 脚本...', 'info');
+        addLog('开始运行 setup-offline 脚本');
+
+        // 这里可以通过 IPC 调用主进程运行脚本，或者提供用户指导
+        // 目前先提供用户指导
+        const result = await ipcRenderer.invoke('app:runSetupOffline');
+
+        if (result && result.success) {
+            showToast('setup-offline 脚本执行完成', 'success');
+            addLog('setup-offline 脚本执行完成');
+            // 重新检查依赖
+            setTimeout(() => {
+                checkDependencies();
+            }, 2000);
+        } else {
+            // 提供手动运行指导
+            showToast('请在终端运行: npm run setup-offline', 'info');
+            addLog('请在终端运行: npm run setup-offline');
+        }
+    } catch (error) {
+        // 如果 IPC 调用失败，提供手动运行指导
+        showToast('请在终端运行: npm run setup-offline', 'info');
+        addLog('请在终端运行: npm run setup-offline');
+        console.log('setup-offline 指导:', error);
     }
 }
 
@@ -543,6 +710,37 @@ function initializeEventListeners() {
             await ipcRenderer.invoke('app:openDownloadsFolder');
         } catch (error) {
             showToast(`打开下载目录失败: ${error.message}`, 'error');
+        }
+    });
+
+    // 依赖检查模态框事件监听器
+    const depsModal = getId('deps-modal');
+    const closeDepsModal = getId('close-deps-modal');
+    const closeDepsModalBtn = getId('close-deps-modal-btn');
+    const runSetupOfflineBtn = getId('run-setup-offline-btn');
+
+    // 关闭模态框事件
+    const closeModal = () => {
+        hideDepsModal();
+    };
+
+    closeDepsModal.addEventListener('click', closeModal);
+    closeDepsModalBtn.addEventListener('click', closeModal);
+
+    // 点击模态框背景关闭
+    depsModal.addEventListener('click', (event) => {
+        if (event.target === depsModal) {
+            closeModal();
+        }
+    });
+
+    // 运行 setup-offline 脚本
+    runSetupOfflineBtn.addEventListener('click', runSetupOffline);
+
+    // ESC 键关闭模态框
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && depsModal.style.display === 'flex') {
+            closeModal();
         }
     });
 
