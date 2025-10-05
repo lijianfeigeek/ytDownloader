@@ -6,6 +6,18 @@ const {shell, ipcRenderer, clipboard} = require("electron");
 const {default: YTDlpWrap} = require("yt-dlp-wrap-plus");
 const {constants} = require("fs/promises");
 
+// Runtime binaries directory
+const runtimeBinDir = path.join(__dirname, '..', 'resources', 'runtime', 'bin');
+
+// Bundled yt-dlp and ffmpeg paths
+const bundledYtDlp = process.platform === 'win32'
+    ? path.join(runtimeBinDir, 'yt-dlp.exe')
+    : path.join(runtimeBinDir, 'yt-dlp');
+
+const bundledFfmpeg = process.platform === 'win32'
+    ? path.join(runtimeBinDir, 'ffmpeg.exe')
+    : path.join(runtimeBinDir, 'ffmpeg');
+
 let ffmpeg = "";
 
 // Directories
@@ -116,17 +128,33 @@ const possiblePaths = [
 // Checking for yt-dlp
 let ytDlpPath = path.join(os.homedir(), ".ytDownloader", "ytdlp");
 
+// Priority 1: Check bundled yt-dlp first for all platforms
+if (fs.existsSync(bundledYtDlp)) {
+	ytDlpPath = bundledYtDlp;
+}
+
 if (os.platform() == "win32") {
-	ytDlpPath = path.join(os.homedir(), ".ytDownloader", "ytdlp.exe");
+	// If bundled yt-dlp wasn't found, use Windows user directory
+	if (!fs.existsSync(bundledYtDlp)) {
+		ytDlpPath = path.join(os.homedir(), ".ytDownloader", "ytdlp.exe");
+	}
 }
 
 // Macos yt-dlp check
 if (os.platform() === "darwin") {
-	ytDlpPath = possiblePaths.find((p) => fs.existsSync(p)) || null;
+	// If bundled yt-dlp wasn't found in the initial check, try system paths
+	if (!fs.existsSync(bundledYtDlp)) {
+		ytDlpPath = possiblePaths.find((p) => fs.existsSync(p)) || null;
 
-	if (ytDlpPath == null) {
-		showMacYtdlpPopup();
+		if (ytDlpPath == null) {
+			showMacYtdlpPopup();
+		} else {
+			ytDlpIsPresent = true;
+			ytDlp = new YTDlpWrap(`"${ytDlpPath}"`);
+			setLocalStorageYtDlp(ytDlpPath);
+		}
 	} else {
+		// Bundled yt-dlp was found in initial check
 		ytDlpIsPresent = true;
 		ytDlp = new YTDlpWrap(`"${ytDlpPath}"`);
 		setLocalStorageYtDlp(ytDlpPath);
@@ -135,24 +163,32 @@ if (os.platform() === "darwin") {
 
 // Use system yt-dlp for freebsd
 if (os.platform() === "freebsd") {
-	try {
-		ytDlpPath = cp
-			.execSync("which yt-dlp")
-			.toString("utf8")
-			.split("\n")[0]
-			.trim();
+	// If bundled yt-dlp wasn't found in the initial check, try system yt-dlp
+	if (!fs.existsSync(bundledYtDlp)) {
+		try {
+			ytDlpPath = cp
+				.execSync("which yt-dlp")
+				.toString("utf8")
+				.split("\n")[0]
+				.trim();
 
+			ytDlpIsPresent = true;
+			ytDlp = new YTDlpWrap(`"${ytDlpPath}"`);
+			setLocalStorageYtDlp(ytDlpPath);
+		} catch (error) {
+			console.log(error);
+
+			hidePasteBtn();
+
+			getId("incorrectMsg").textContent = i18n.__(
+				"No yt-dlp found in PATH. Make sure you have the full executable. App will not work"
+			);
+		}
+	} else {
+		// Bundled yt-dlp was found in initial check
 		ytDlpIsPresent = true;
 		ytDlp = new YTDlpWrap(`"${ytDlpPath}"`);
 		setLocalStorageYtDlp(ytDlpPath);
-	} catch (error) {
-		console.log(error);
-
-		hidePasteBtn();
-
-		getId("incorrectMsg").textContent = i18n.__(
-			"No yt-dlp found in PATH. Make sure you have the full executable. App will not work"
-		);
 	}
 }
 
@@ -243,9 +279,14 @@ if (
 }
 
 // Ffmpeg check
-if (os.platform() === "win32") {
+// Priority 1: Check bundled ffmpeg first
+if (fs.existsSync(bundledFfmpeg)) {
+	ffmpeg = `"${bundledFfmpeg}"`;
+} else if (os.platform() === "win32") {
+	// Priority 2: Fall back to Windows default location
 	ffmpeg = `"${__dirname}\\..\\ffmpeg.exe"`;
 } else if (os.platform() === "freebsd") {
+	// Priority 2: Fall back to system ffmpeg on FreeBSD
 	try {
 		ffmpeg = cp
 			.execSync("which ffmpeg")
@@ -258,6 +299,7 @@ if (os.platform() === "win32") {
 		getId("incorrectMsg").textContent = i18n.__("No ffmpeg found in PATH");
 	}
 } else {
+	// Priority 2: Fall back to default Unix location
 	ffmpeg = `"${__dirname}/../ffmpeg"`;
 }
 
