@@ -1,0 +1,47 @@
+{
+  "version": "0.0.0",
+  "dependencies": {
+    "yt-dlp": {
+      "version": "latest",
+      "binary": "bin/yt-dlp",
+      "checksum": "",
+      "platforms": ["win32", "darwin", "linux"]
+    },
+    "ffmpeg": {
+      "version": "latest",
+      "binary": "bin/ffmpeg",
+      "checksum": "",
+      "platforms": ["win32", "darwin", "linux"]
+    },
+    "whisper.cpp": {
+      "version": "latest",
+      "binary": "whisper/whisper",
+      "checksum": "",
+      "platforms": ["win32", "darwin", "linux"]
+    },
+    "whisper-model": {
+      "model": "ggml-large-v3-turbo-q5_0.bin",
+      "path": "whisper/models/",
+      "checksum": "",
+      "size": "",
+      "description": "Large V3 Turbo quantized model for transcription"
+    }
+  },
+  "platform_specific": {
+    "darwin": {
+      "metal_support": true,
+      "whisper_binary": "whisper/whisper-macos",
+      "encoder_default": "metal"
+    },
+    "win32": {
+      "whisper_binary": "whisper/whisper.exe",
+      "encoder_default": "cpu"
+    },
+    "linux": {
+      "whisper_binary": "whisper/whisper-linux",
+      "encoder_default": "cpu"
+    }
+  },
+  "created": "2025-10-05",
+  "description": "Runtime dependencies manifest for offline transcription"
+}

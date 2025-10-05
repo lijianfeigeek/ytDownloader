@@ -11,6 +11,8 @@
 		"start": "electron .",
 		"dist": "electron-builder",
 		"debug": "electron --inspect=5858 .",
+		"setup-offline": "node scripts/setup-offline.js",
+		"test": "node tests/queue.test.js",
 		"windows": "electron-builder -w",
 		"linux": "electron-builder -l",
 		"mac": "electron-builder -m",
