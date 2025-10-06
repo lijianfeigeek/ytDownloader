@@ -66,7 +66,7 @@ ultrathink 提示词：
   - [x] 内置文件不存在时不会写入无效路径
   ```
 
-- [ ] **6. 回归测试与文档更新**  
+- [x] **6. 回归测试与文档更新**  
   提示词：
   ```markdown
   你是一位资深QA工程师，请执行以下回归步骤并更新文档：
@@ -74,7 +74,7 @@ ultrathink 提示词：
   2. 启动应用，打开 Offline Transcribe → 依赖检查 → 运行 setup-offline，验证进度与完成提示正常，依赖状态刷新为 Ready。
   3. 更新 README / ARCHITECTURE / AGENTS 中关于依赖下载与默认路径的说明。
   CHECKLIST:
-  - [ ] CLI 与 GUI 依赖检查均显示 Ready
-  - [ ] README/文档包含最新操作指引
-  - [ ] QA 记录（步骤、结果、截图/日志）已归档
+  - [x] CLI 与 GUI 依赖检查均显示 Ready
+  - [x] README/文档包含最新操作指引
+  - [x] QA 记录（步骤、结果、截图/日志）已归档
   ```

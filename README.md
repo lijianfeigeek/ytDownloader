@@ -35,6 +35,8 @@ A modern GUI video and audio downloader supporting [hundreds of sites](https://g
 
 ✅ Download playlists
 
+✅ **Offline Transcribe** - Download videos and transcribe them locally using Whisper AI with Metal GPU acceleration
+
 ✅ Available on Linux, Windows, Freebsd & macOS
 
 ✅ Fast download speeds
@@ -174,6 +176,31 @@ To run with [Electron](https://www.electronjs.org/) :
 ```
 npm start
 ```
+
+## Offline Transcribe Dependencies
+
+For the offline transcribe feature, you need to set up the required dependencies:
+
+### Automatic Setup (Recommended)
+
+Run the setup script to automatically download and configure all dependencies:
+```bash
+npm run setup-offline
+```
+
+This will download:
+- **yt-dlp** - Video downloader
+- **ffmpeg** - Media processing tool
+- **whisper.cpp** - Local Whisper AI implementation with Metal GPU acceleration (macOS)
+- **Whisper Large V3 Turbo Model** - High-quality transcription model (547MB)
+
+### Manual Setup
+
+The setup script will automatically configure binary paths in your config file. If you need to set custom paths, you can modify `config.json` in your user data directory:
+- `yt-dlp-path`: Path to yt-dlp binary
+- `ffmpeg-path`: Path to ffmpeg binary
+
+The binary files are stored in `resources/runtime/bin/` and the Whisper model in `resources/runtime/whisper/models/`.
 
 You need to download ffmpeg and put it in the root directory of the project. If you don't need to build for arm processor, you can download ffmpeg by executing any of the files - linux.sh / mac.sh / windows.sh depending on the platform. Otherwise you need to download ffmpeg from [here](https://github.com/yt-dlp/FFmpeg-Builds/releases) for windows/linux and from [here](http://www.osxexperts.net/) for mac (not tested)
 

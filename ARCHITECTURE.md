@@ -83,6 +83,10 @@ downloads/
 | `job:log`      | Main → Renderer   | 流式日志行（节流后发送） |
 | `job:result`   | Main → Renderer   | 完成/失败状态、产物路径 |
 | `deps:check`   | Renderer ⇄ Main   | 校验离线依赖是否齐备 |
+| `app:runSetupOffline` | Renderer → Main | 运行 setup-offline 脚本 |
+| `app:setupOffline:progress` | Main → Renderer | 实时进度事件，格式：`{ type: 'stdout'|'stderr', chunk }` |
+| `app:setupOffline:done` | Main → Renderer | 脚本完成事件，包含 `exitCode`、`stdout`、`stderr` |
+| `app:setupOffline:error` | Main → Renderer | 脚本异常事件 |
 
 ## 5. 运行环境与依赖
 - 必备二进制：`yt-dlp`、`ffmpeg`、`whisper.cpp`、Large V3 Turbo 量化模型。
@@ -90,6 +94,7 @@ downloads/
   1. 下载或验证上述二进制与模型。
   2. 写入 SHA256 校验值与版本信息至 `resources/runtime/manifest.json`。
   3. 在 macOS 上自动赋予执行权限，检测 Metal 支持（`system_profiler SPDisplaysDataType`）。
+- **自动路径配置**：应用启动时自动检测 `resources/runtime/bin` 中的二进制文件，若配置文件中缺少 `yt-dlp-path` 或 `ffmpeg-path`，则自动写入默认路径值。尊重用户自定义路径，不覆盖现有配置。
 - 用户可在设置中自定义 `downloads` 目录、最大并发、默认语言；配置持久化存储于应用 config（`app.getPath("userData")/config.json`）。
 
 ## 6. 离线与安全设计
