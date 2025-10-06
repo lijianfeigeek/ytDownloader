@@ -176,6 +176,12 @@ function getStatusClass(status) {
  * 创建作业 DOM 元素
  */
 function createJobElement(job) {
+    // 防御性编程：确保 job 对象存在且有关键属性
+    if (!job || !job.id) {
+        console.error('Invalid job object in createJobElement:', job);
+        return document.createElement('div'); // 返回空的 div 元素
+    }
+
     const li = document.createElement('li');
     li.className = 'item';
     li.id = `job-${job.id}`;
@@ -381,12 +387,19 @@ async function handleJobCreation(event) {
         });
 
         if (result.success) {
-            addLog(`作业创建成功: ${result.job.id}`);
-            showToast('作业创建成功', 'success');
+            // 防御性编程：确保 result.job 和 result.job.id 存在
+            if (result.job && result.job.id) {
+                addLog(`作业创建成功: ${result.job.id}`);
+                showToast('作业创建成功', 'success');
 
-            // 清空表单
-            elements.jobForm.reset();
-            elements.outputDirInput.value = result.job.outputDir;
+                // 清空表单
+                elements.jobForm.reset();
+                elements.outputDirInput.value = result.job.outputDir || '';
+            } else {
+                addLog('作业创建成功，但缺少作业ID信息');
+                showToast('作业创建成功', 'success');
+                elements.jobForm.reset();
+            }
 
             // 刷新作业列表
             await loadJobs();
@@ -413,7 +426,12 @@ async function loadJobs() {
         if (result.success) {
             jobs.clear();
             result.jobs.forEach(job => {
-                jobs.set(job.id, job);
+                // 防御性编程：确保 job 对象和 job.id 存在
+                if (job && job.id) {
+                    jobs.set(job.id, job);
+                } else {
+                    console.warn('跳过无效的作业对象:', job);
+                }
             });
             updateJobList();
         } else {
@@ -429,6 +447,9 @@ async function loadJobs() {
  */
 async function openJobDirectory(job) {
     try {
+        if (!job || !job.id) {
+            throw new Error('无效的作业对象');
+        }
         await ipcRenderer.invoke('job:openDirectory', job.id);
     } catch (error) {
         showToast(`打开目录失败: ${error.message}`, 'error');
@@ -440,6 +461,9 @@ async function openJobDirectory(job) {
  */
 async function retryJob(job) {
     try {
+        if (!job || !job.id) {
+            throw new Error('无效的作业对象');
+        }
         const result = await ipcRenderer.invoke('job:retry', job.id);
         if (result.success) {
             addLog(`作业重试成功: ${job.id}`);
@@ -572,11 +596,30 @@ function clearLogs() {
     addLog('日志已清空');
 }
 
+// 缓存上一次的依赖检查结果和时间戳
+let lastDepsResult = null;
+let lastDepsCheckTime = null;
+
 /**
  * 检查依赖
+ * @param {boolean} forceRefresh - 是否强制刷新（忽略缓存）
  */
-async function checkDependencies() {
+async function checkDependencies(forceRefresh = false) {
     try {
+        // 检查是否需要刷新（避免频繁检查）
+        const now = Date.now();
+        const cacheAgeMs = lastDepsCheckTime ? now - lastDepsCheckTime : Infinity;
+        const CACHE_DURATION_MS = 5000; // 5秒缓存
+
+        if (!forceRefresh && lastDepsResult && cacheAgeMs < CACHE_DURATION_MS) {
+            console.log(`[transcribe] Using cached dependencies result (${cacheAgeMs}ms old)`);
+            renderDepsCheckResults(lastDepsResult.dependencies, lastDepsResult.timestamp);
+            showDepsModal();
+            return;
+        }
+
+        console.log(`[transcribe] Checking dependencies (force=${forceRefresh}, cacheAge=${cacheAgeMs}ms)...`);
+
         // 显示加载状态
         showDepsModalLoading();
 
@@ -584,7 +627,13 @@ async function checkDependencies() {
         const result = await ipcRenderer.invoke('deps:check');
 
         if (result.success) {
-            renderDepsCheckResults(result.dependencies);
+            // 缓存结果和时间戳
+            lastDepsResult = result;
+            lastDepsCheckTime = now;
+
+            console.log(`[transcribe] Dependencies check completed: ${result.dependencies.filter(d => d.available).length}/${result.dependencies.length} available`);
+
+            renderDepsCheckResults(result.dependencies, result.timestamp);
             showDepsModal();
         } else {
             showToast(`依赖检查失败: ${result.error.message}`, 'error');
@@ -593,6 +642,7 @@ async function checkDependencies() {
     } catch (error) {
         showToast(`依赖检查异常: ${error.message}`, 'error');
         addLog(`依赖检查异常: ${error.message}`);
+        console.error('[transcribe] Dependencies check error:', error);
     }
 }
 
@@ -617,14 +667,21 @@ function showDepsModalLoading() {
 /**
  * 渲染依赖检查结果
  */
-function renderDepsCheckResults(dependencies) {
+function renderDepsCheckResults(dependencies, timestamp = null) {
     const resultsList = getId('deps-results-list');
     const checkTime = getId('deps-check-time');
     const recommendations = getId('deps-recommendations-content');
 
-    // 显示检查时间
+    // 显示检查时间（使用传入的时间戳或当前时间）
+    const checkDate = timestamp ? new Date(timestamp) : new Date();
+    checkTime.textContent = `检查时间: ${checkDate.toLocaleString()}`;
+
+    // 如果是最近的结果（5秒内），添加"刚刚更新"标识
     const now = new Date();
-    checkTime.textContent = `检查时间: ${now.toLocaleString()}`;
+    const ageMs = now - checkDate;
+    if (ageMs < 5000 && timestamp) {
+        checkTime.innerHTML += ' <span style="color: var(--success-color); font-weight: bold;">(刚刚更新)</span>';
+    }
 
     // 渲染依赖列表
     let html = '';
@@ -1062,16 +1119,23 @@ function initializeEventListeners() {
 
         progressLog.scrollTop = progressLog.scrollHeight;
 
-        // 延迟隐藏进度区域并刷新依赖检查
+        // 立即刷新依赖检查（无延迟），然后再延迟隐藏进度区域
+        console.log(`[transcribe] setup-offline completed with exit code: ${exitCode}, immediately refreshing dependencies...`);
+
+        // 立即执行依赖检查，确保显示最新状态（强制刷新）
+        checkDependencies(true).then(() => {
+            console.log('[transcribe] Dependencies refreshed immediately after setup-offline completion');
+        }).catch(error => {
+            console.error('[transcribe] Error refreshing dependencies:', error);
+        });
+
+        // 延迟隐藏进度区域（仅UI操作）
         setTimeout(() => {
             progressSection.style.display = 'none';
 
             // 重置进度条颜色
             progressBar.style.backgroundColor = '';
-
-            // 无论成功失败都刷新依赖检查结果
-            checkDependencies();
-        }, 3000);
+        }, 2000); // 减少延迟时间，因为依赖检查已经立即执行了
     });
 
     // Setup-offline 错误事件
@@ -1092,10 +1156,18 @@ function initializeEventListeners() {
         addLog(`setup-offline 执行失败: ${data.message || data.error}`, 'error');
         showToast(`setup-offline 执行失败: ${data.message || data.error}`, 'error');
 
+        // 即使出错也要刷新依赖检查，因为可能有部分依赖安装成功
+        console.log('[transcribe] setup-offline failed, but still refreshing dependencies to check partial success...');
+        checkDependencies(true).then(() => {
+            console.log('[transcribe] Dependencies refreshed after setup-offline error');
+        }).catch(error => {
+            console.error('[transcribe] Error refreshing dependencies after setup-offline error:', error);
+        });
+
         // 延迟隐藏进度区域
         setTimeout(() => {
             progressSection.style.display = 'none';
-        }, 5000);
+        }, 3000); // 减少延迟时间
     });
 }
 

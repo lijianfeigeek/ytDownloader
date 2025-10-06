@@ -11,17 +11,17 @@ const os = require('os');
 // 默认 whisper.cpp 二进制路径配置
 const DEFAULT_WHISPER_PATHS = {
   win32: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper.exe'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper'),
+  darwin: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'whisper-macos'),
   linux: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper'),
   freebsd: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper')
 };
 
 // 默认模型路径配置
 const DEFAULT_MODEL_PATHS = {
-  win32: path.join(process.cwd(), 'resources', 'runtime', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  linux: path.join(process.cwd(), 'resources', 'runtime', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'models', 'ggml-large-v3-turbo-q5_0.bin')
+  win32: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
+  darwin: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
+  linux: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
+  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin')
 };
 
 /**
@@ -168,7 +168,7 @@ function buildWhisperArgs(modelPath, audioPath, opts = {}) {
   const args = [
     '--model', modelPath,
     '--file', audioPath,
-    '--output-format', 'txt',
+    '--output-txt',
     '--print-progress'
   ];
 
@@ -467,15 +467,27 @@ async function transcribe(job, audioPath, opts = {}) {
     // 查找生成的转写文件
     let transcriptPath = outputPath;
 
-    // whisper.cpp 默认在音频文件同目录生成输出文件
-    const audioBaseName = path.basename(audioPath, path.extname(audioPath));
+    // whisper.cpp 在音频文件同目录生成输出文件，文件名为 输入文件名.txt
+    const audioBaseName = path.basename(audioPath); // 包含扩展名的完整文件名
     const defaultOutputPath = path.join(path.dirname(audioPath), `${audioBaseName}.txt`);
 
+    // 也可能使用不带扩展名的音频文件名
+    const audioBaseNameWithoutExt = path.basename(audioPath, path.extname(audioPath));
+    const altOutputPath = path.join(path.dirname(audioPath), `${audioBaseNameWithoutExt}.txt`);
+
+    // 按优先级查找文件
     if (fs.existsSync(defaultOutputPath)) {
       // 移动文件到目标位置
       if (defaultOutputPath !== outputPath) {
         fs.copyFileSync(defaultOutputPath, outputPath);
         fs.unlinkSync(defaultOutputPath); // 删除临时文件
+      }
+      transcriptPath = outputPath;
+    } else if (fs.existsSync(altOutputPath)) {
+      // 移动文件到目标位置
+      if (altOutputPath !== outputPath) {
+        fs.copyFileSync(altOutputPath, outputPath);
+        fs.unlinkSync(altOutputPath); // 删除临时文件
       }
       transcriptPath = outputPath;
     } else if (fs.existsSync(outputPath)) {
@@ -484,7 +496,7 @@ async function transcribe(job, audioPath, opts = {}) {
       throw new TranscribeError(
         '转写完成但未找到输出文件',
         'TRANSCRIPT_NOT_FOUND',
-        { expectedPaths: [outputPath, defaultOutputPath] }
+        { expectedPaths: [outputPath, defaultOutputPath, altOutputPath] }
       );
     }
 

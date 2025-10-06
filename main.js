@@ -1612,24 +1612,52 @@ ipcMain.handle('app:runSetupOffline', async () => {
  */
 ipcMain.handle('deps:check', async () => {
 	try {
+		const platform = process.platform;
+		const runtimeDir = path.join(__dirname, 'resources', 'runtime');
+		const binDir = path.join(runtimeDir, 'bin');
+		const whisperDir = path.join(runtimeDir, 'whisper');
+
+		// 确定平台特定的二进制文件名
+		const getYtDlpBinary = () => {
+			if (platform === 'win32') return 'yt-dlp.exe';
+			return 'yt-dlp';
+		};
+
+		const getFfmpegBinary = () => {
+			if (platform === 'win32') return 'ffmpeg.exe';
+			return 'ffmpeg';
+		};
+
+		const getWhisperBinary = () => {
+			if (platform === 'win32') return 'whisper.exe';
+			if (platform === 'darwin') return 'whisper-macos';
+			return 'whisper-linux';
+		};
+
 		const dependencies = [
 			{
 				name: 'yt-dlp',
-				command: 'yt-dlp --version',
+				// 优先检查 runtime/bin 目录，然后检查系统 PATH
+				runtimePath: path.join(binDir, getYtDlpBinary()),
+				systemCommand: 'yt-dlp --version',
 				available: false,
 				version: null,
 				path: null
 			},
 			{
 				name: 'ffmpeg',
-				command: 'ffmpeg -version',
+				// 优先检查 runtime/bin 目录，然后检查系统 PATH
+				runtimePath: path.join(binDir, getFfmpegBinary()),
+				systemCommand: 'ffmpeg -version',
 				available: false,
 				version: null,
 				path: null
 			},
 			{
 				name: 'whisper.cpp',
-				command: path.join(__dirname, '../resources/runtime/whisper/whisper --help'),
+				// 检查 runtime/whisper 目录中的平台特定二进制
+				runtimePath: path.join(whisperDir, getWhisperBinary()),
+				systemCommand: null, // whisper.cpp 通常不在系统 PATH 中
 				available: false,
 				version: null,
 				path: null
@@ -1638,30 +1666,70 @@ ipcMain.handle('deps:check', async () => {
 
 		// 检查每个依赖
 		for (const dep of dependencies) {
-			try {
-				const { stdout } = await execAsync(dep.command);
-				dep.available = true;
+			let checked = false;
 
-				// 尝试提取版本信息
-				if (dep.name === 'yt-dlp') {
-					const match = stdout.match(/(\d{4}\.\d{2}\.\d{2})/);
-					dep.version = match ? match[1] : 'Unknown';
-				} else if (dep.name === 'ffmpeg') {
-					const match = stdout.match(/version ([\d.]+)/i);
-					dep.version = match ? match[1] : 'Unknown';
-				} else if (dep.name === 'whisper.cpp') {
-					dep.version = 'ggml-large-v3-turbo';
-					dep.path = path.join(__dirname, '../resources/runtime/whisper/whisper');
+			// 首先检查 runtime 目录中的二进制文件
+			if (fs.existsSync(dep.runtimePath)) {
+				try {
+					const command = `"${dep.runtimePath}"${dep.name === 'yt-dlp' ? ' --version' : dep.name === 'ffmpeg' ? ' -version' : ' --help'}`;
+					const { stdout } = await execAsync(command);
+					dep.available = true;
+					dep.path = dep.runtimePath;
+
+					// 尝试提取版本信息
+					if (dep.name === 'yt-dlp') {
+						const match = stdout.match(/(\d{4}\.\d{2}\.\d{2})/);
+						dep.version = match ? match[1] : 'Unknown';
+					} else if (dep.name === 'ffmpeg') {
+						const match = stdout.match(/version ([\d.]+)/i);
+						dep.version = match ? match[1] : 'Unknown';
+					} else if (dep.name === 'whisper.cpp') {
+						dep.version = 'ggml-large-v3-turbo';
+					}
+
+					checked = true;
+					console.log(`[deps:check] ${dep.name} found in runtime: ${dep.runtimePath}`);
+				} catch (error) {
+					console.warn(`[deps:check] Runtime ${dep.name} exists but failed to execute:`, error.message);
 				}
+			}
 
-			} catch (error) {
-				// 依赖不可用
-				dep.available = false;
+			// 如果 runtime 目录中没有，则检查系统 PATH
+			if (!checked && dep.systemCommand) {
+				try {
+					const { stdout } = await execAsync(dep.systemCommand);
+					dep.available = true;
+
+					// 获取系统二进制路径
+					try {
+						const whichCommand = platform === 'win32' ? 'where' : 'which';
+						const { stdout: pathOutput } = await execAsync(`${whichCommand} ${dep.name}`);
+						dep.path = pathOutput.trim().split('\n')[0];
+					} catch (pathError) {
+						// 无法获取路径，但二进制可用
+						dep.path = dep.name;
+					}
+
+					// 尝试提取版本信息
+					if (dep.name === 'yt-dlp') {
+						const match = stdout.match(/(\d{4}\.\d{2}\.\d{2})/);
+						dep.version = match ? match[1] : 'Unknown';
+					} else if (dep.name === 'ffmpeg') {
+						const match = stdout.match(/version ([\d.]+)/i);
+						dep.version = match ? match[1] : 'Unknown';
+					}
+
+					console.log(`[deps:check] ${dep.name} found in system PATH`);
+				} catch (error) {
+					// 依赖不可用
+					dep.available = false;
+					console.log(`[deps:check] ${dep.name} not found: ${error.message}`);
+				}
 			}
 		}
 
 		// 检查模型文件
-		const modelPath = path.join(__dirname, '../resources/runtime/whisper/models/ggml-large-v3-turbo-q5_0.bin');
+		const modelPath = path.join(whisperDir, 'models', 'ggml-large-v3-turbo-q5_0.bin');
 		const modelDep = {
 			name: 'Whisper Model (Large V3 Turbo)',
 			available: fs.existsSync(modelPath),
@@ -1671,9 +1739,12 @@ ipcMain.handle('deps:check', async () => {
 
 		dependencies.push(modelDep);
 
+		console.log(`[deps:check] Dependencies check completed. Available: ${dependencies.filter(d => d.available).length}/${dependencies.length}`);
+
 		return {
 			success: true,
-			dependencies
+			dependencies,
+			timestamp: new Date().toISOString()
 		};
 
 	} catch (error) {
@@ -1683,7 +1754,8 @@ ipcMain.handle('deps:check', async () => {
 			error: {
 				code: 'DEPS_CHECK_ERROR',
 				message: error.message
-			}
+			},
+			timestamp: new Date().toISOString()
 		};
 	}
 });

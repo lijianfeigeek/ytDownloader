@@ -48,6 +48,17 @@ class AudioExtractError extends Error {
 }
 
 /**
+ * 检查文件是否已经是音频格式
+ * @param {string} filePath - 文件路径
+ * @returns {boolean} 是否为音频文件
+ */
+function isAudioFile(filePath) {
+  const audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.opus'];
+  const ext = path.extname(filePath).toLowerCase();
+  return audioExtensions.includes(ext);
+}
+
+/**
  * 验证输入参数
  * @param {string} videoPath - 视频文件路径
  * @param {Object} options - 转换选项
@@ -55,21 +66,23 @@ class AudioExtractError extends Error {
  */
 function validateInput(videoPath, options = {}) {
   if (!videoPath || typeof videoPath !== 'string') {
-    throw new AudioExtractError('视频文件路径必须是非空字符串', 'INVALID_VIDEO_PATH');
+    throw new AudioExtractError('文件路径必须是非空字符串', 'INVALID_VIDEO_PATH');
   }
 
   if (!fs.existsSync(videoPath)) {
-    throw new AudioExtractError('视频文件不存在', 'VIDEO_FILE_NOT_FOUND', { videoPath });
+    throw new AudioExtractError('文件不存在', 'VIDEO_FILE_NOT_FOUND', { videoPath });
   }
 
   // 检查文件扩展名
-  const videoExt = path.extname(videoPath).toLowerCase();
+  const fileExt = path.extname(videoPath).toLowerCase();
   const videoExtensions = ['.mp4', '.avi', '.mov', '.mkv', '.wmv', '.flv', '.webm', '.m4v'];
-  if (!videoExtensions.includes(videoExt)) {
+  const audioExtensions = ['.mp3', '.wav', '.flac', '.aac', '.ogg', '.m4a', '.opus'];
+
+  if (!videoExtensions.includes(fileExt) && !audioExtensions.includes(fileExt)) {
     throw new AudioExtractError(
-      `不支持的文件格式: ${videoExt}`,
+      `不支持的文件格式: ${fileExt}`,
       'UNSUPPORTED_VIDEO_FORMAT',
-      { videoPath, extension: videoExt }
+      { videoPath, extension: fileExt }
     );
   }
 
@@ -271,7 +284,59 @@ async function extractAudio(videoPath, options = {}) {
     spawnFn = null
   } = options;
 
-  // 生成输出路径
+  // 检查输入文件是否已经是音频格式
+  if (isAudioFile(videoPath)) {
+    const fileExt = path.extname(videoPath).toLowerCase();
+
+    if (onLog) {
+      onLog('info', `输入文件已经是音频格式 (${fileExt})，跳过音频提取步骤`);
+      onLog('info', `使用现有音频文件: ${videoPath}`);
+    }
+
+    const result = { mp3Path: videoPath };
+
+    // 如果输入文件是 MP3 且需要生成 WAV 文件
+    if (generateWav && fileExt === '.mp3') {
+      const paths = generateOutputPaths(videoPath, { outputDir });
+
+      if (onLog) {
+        onLog('info', `开始从 MP3 生成 WAV 文件: ${paths.wavPath}`);
+      }
+
+      const actualFfmpegPath = ffmpegPath || getDefaultFfmpegPath();
+      const wavArgs = buildWavArgs(videoPath, paths.wavPath);
+
+      try {
+        // 执行 WAV 转换
+        if (ffmpegInstance) {
+          await ffmpegInstance(wavArgs, actualFfmpegPath, onLog);
+        } else {
+          await executeFfmpeg(wavArgs, actualFfmpegPath, onLog, spawnFn);
+        }
+
+        // 验证 WAV 文件是否生成成功
+        if (fs.existsSync(paths.wavPath)) {
+          const wavStats = fs.statSync(paths.wavPath);
+          if (onLog) {
+            onLog('info', `WAV 转换完成: ${paths.wavPath} (${wavStats.size} bytes)`);
+          }
+          result.wavPath = paths.wavPath;
+        }
+      } catch (error) {
+        if (onLog) {
+          onLog('warn', `WAV 生成失败，但 MP3 文件可用: ${error.message}`);
+        }
+      }
+    }
+
+    if (onLog) {
+      onLog('info', '音频处理完成（使用现有音频文件）');
+    }
+
+    return result;
+  }
+
+  // 处理视频文件的情况
   const paths = generateOutputPaths(videoPath, { outputDir });
 
   // 检查输出文件是否已存在
@@ -385,6 +450,7 @@ module.exports = {
   extractAudio,
   AudioExtractError,
   // 工具函数
+  isAudioFile,
   getDefaultFfmpegPath,
   validateInput,
   generateOutputPaths,

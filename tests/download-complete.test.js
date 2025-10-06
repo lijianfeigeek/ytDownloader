@@ -59,9 +59,12 @@ class MockYtDlpWrap {
     this.finalFilePath = filePath;
   }
 
-  async exec(url) {
-    // 模拟下载过程
-    return new Promise((resolve, reject) => {
+  exec(optionsOrUrl, execOptions = null) {
+    // 兼容新的调用方式 (options array) 和旧的调用方式 (url string)
+    const url = Array.isArray(optionsOrUrl) ? optionsOrUrl[optionsOrUrl.length - 1] : optionsOrUrl;
+
+    // 模拟下载过程 - 返回一个 Promise 对象，同时支持事件监听
+    const mockProcess = new Promise((resolve, reject) => {
       setTimeout(() => {
         if (this.shouldFail) {
           const error = this.failError || new Error('Mock download failed');
@@ -84,6 +87,31 @@ class MockYtDlpWrap {
         }
       }, 100); // 模拟网络延迟
     });
+
+    // 为 Promise 对象添加事件监听方法
+    mockProcess.on = (event, listener) => {
+      if (!this.listeners.has(event)) {
+        this.listeners.set(event, []);
+      }
+      this.listeners.get(event).push(listener);
+      return mockProcess;
+    };
+
+    mockProcess.removeAllListeners = () => {
+      this.listeners.clear();
+      return mockProcess;
+    };
+
+    // 支持 .then() 语法
+    mockProcess.then = (onFulfilled, onRejected) => {
+      return Promise.prototype.then.call(mockProcess, onFulfilled, onRejected);
+    };
+
+    mockProcess.catch = (onRejected) => {
+      return Promise.prototype.catch.call(mockProcess, onRejected);
+    };
+
+    return mockProcess;
   }
 
   emit(event, data) {

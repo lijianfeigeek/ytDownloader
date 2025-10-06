@@ -229,53 +229,113 @@ async function download(job, onProgress, options = {}) {
   const outputFilename = generateOutputFilename(job);
   const ytDlpOptions = buildYtDlpOptions(job, outputFilename);
 
-  let ytDlpProcess = null;
+  // 添加 URL 到参数列表末尾
+  ytDlpOptions.push(job.url);
+
+  let ytDlpInstance = null;
   let downloadedFilePath = null;
 
   try {
     // 创建 yt-dlp 实例 (支持依赖注入)
     if (options.ytDlpInstance) {
-      ytDlpProcess = options.ytDlpInstance;
+      ytDlpInstance = options.ytDlpInstance;
     } else {
-      ytDlpProcess = createYtDlpInstance(options.ytDlpPath);
+      ytDlpInstance = createYtDlpInstance(options.ytDlpPath);
     }
-
-    // 设置下载参数
-    ytDlpProcess.setOptions(ytDlpOptions);
-
-    // 监听进度事件
-    ytDlpProcess.on('progress', (progressEvent) => {
-      try {
-        const progress = parseProgressEvent(progressEvent);
-        onProgress(progress);
-      } catch (error) {
-        console.error('解析进度事件失败:', error);
-        // 不抛出错误，继续下载
-      }
-    });
-
-    // 监听错误事件 (在测试中不打印错误信息)
-    if (!options.ytDlpInstance || !options.ytDlpInstance.isMock) {
-      ytDlpProcess.on('error', (error) => {
-        console.error('yt-dlp 错误:', error);
-      });
-    }
-
-    // 监听完成事件
-    ytDlpProcess.on('finish', (filePath) => {
-      downloadedFilePath = filePath;
-    });
 
     // 开始下载
     console.log(`开始下载: ${job.url}`);
-    const result = await ytDlpProcess.exec(job.url);
+    console.log(`yt-dlp 参数:`, ytDlpOptions);
+    const downloadProcess = ytDlpInstance.exec(ytDlpOptions, { shell: false, detached: false });
 
-    if (!result || !downloadedFilePath) {
-      throw new DownloadError('下载完成但未获取到文件路径', 'NO_FILE_PATH');
-    }
+    // 等待下载完成
+    return new Promise((resolve, reject) => {
+      let finished = false;
 
-    console.log(`下载完成: ${downloadedFilePath}`);
-    return downloadedFilePath;
+      // 监听进度事件
+      downloadProcess.on('progress', (progressEvent) => {
+        try {
+          const progress = parseProgressEvent(progressEvent);
+          onProgress(progress);
+        } catch (error) {
+          console.error('解析进度事件失败:', error);
+          // 不抛出错误，继续下载
+        }
+      });
+
+      // 监听错误事件
+      downloadProcess.on('error', (error) => {
+        if (finished) return;
+        finished = true;
+        console.error('yt-dlp 执行错误:', error);
+        reject(new DownloadError(
+          `下载失败: ${error.message}`,
+          'DOWNLOAD_EXEC_ERROR',
+          {
+            originalError: error.message,
+            url: job.url,
+            jobId: job.id
+          }
+        ));
+      });
+
+      // 监听完成事件
+      downloadProcess.on('finish', (filePath) => {
+        if (finished) return;
+        finished = true;
+        downloadedFilePath = filePath;
+        console.log(`下载完成: ${filePath}`);
+        resolve(filePath);
+      });
+
+      // 监听进程关闭事件（备用完成检测）
+      downloadProcess.on('close', (code) => {
+        if (finished) return;
+
+        console.log(`yt-dlp 进程关闭，退出代码: ${code}`);
+
+        if (code === 0) {
+          // 进程成功退出，尝试查找下载的文件
+          finished = true;
+          const fs = require('fs');
+          const path = require('path');
+
+          // 查找输出目录中的文件
+          const outputDir = job.outputDir;
+          const jobPrefix = `${job.id}.`;
+
+          try {
+            const files = fs.readdirSync(outputDir);
+            const downloadedFile = files.find(file => file.startsWith(jobPrefix));
+
+            if (downloadedFile) {
+              const filePath = path.join(outputDir, downloadedFile);
+              console.log(`通过文件检测找到下载完成: ${filePath}`);
+              resolve(filePath);
+            } else {
+              reject(new DownloadError(
+                '下载完成但未找到输出文件',
+                'OUTPUT_FILE_NOT_FOUND',
+                { outputDir, jobPrefix }
+              ));
+            }
+          } catch (error) {
+            reject(new DownloadError(
+              `无法验证下载结果: ${error.message}`,
+              'DOWNLOAD_VERIFICATION_ERROR'
+            ));
+          }
+        } else {
+          // 进程异常退出
+          finished = true;
+          reject(new DownloadError(
+            `yt-dlp 进程异常退出，代码: ${code}`,
+            'PROCESS_EXIT_ERROR',
+            { exitCode: code }
+          ));
+        }
+      });
+    });
 
   } catch (error) {
     console.error('下载失败:', error);
@@ -299,14 +359,8 @@ async function download(job, onProgress, options = {}) {
     throw downloadError;
 
   } finally {
-    // 清理资源
-    if (ytDlpProcess) {
-      try {
-        ytDlpProcess.removeAllListeners();
-      } catch (error) {
-        console.error('清理 yt-dlp 监听器失败:', error);
-      }
-    }
+    // 清理资源 (注意：downloadProcess 在 try 块中定义，这里需要重新获取引用)
+    // 由于 downloadProcess 是异步执行的，清理工作通常由进程完成时自动处理
   }
 }
 
