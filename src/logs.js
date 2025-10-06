@@ -275,7 +275,21 @@ async function exportDiagnostics(jobId, options = {}) {
         }
 
         // 4. 其他相关文件
-        const additionalFiles = ['transcript.txt', 'source.mp4', 'audio.mp3'];
+        const transcriptFiles = fs
+            .readdirSync(jobDir)
+            .filter(file => file.endsWith('.txt') && file !== 'logs.txt' && file !== 'system_info.txt');
+
+        transcriptFiles.forEach(file => {
+            const filePath = path.join(jobDir, file);
+            if (fs.existsSync(filePath)) {
+                filesToInclude.push({
+                    source: filePath,
+                    target: file
+                });
+            }
+        });
+
+        const additionalFiles = ['source.mp4', 'audio.mp3'];
         for (const file of additionalFiles) {
             const filePath = path.join(jobDir, file);
             if (fs.existsSync(filePath)) {

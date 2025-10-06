@@ -49,6 +49,18 @@
 
     <button class="submitBtn" id="pasteLink">Click to paste playlist link from clipboard [Ctrl + V]</button>
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pasteBtn = document.getElementById('pasteLink');
+            if (pasteBtn) {
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                const shortcut = isMac ? '[Cmd + V]' : '[Ctrl + V]';
+                const originalText = pasteBtn.textContent.replace(/\[.*?\]/, '');
+                pasteBtn.textContent = originalText + ' ' + shortcut;
+            }
+        });
+    </script>
+
     <div id="loadingWrapper">
         <span id="processing">Loading </span>
         <svg version="1.1" id="L4" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" x="0px"

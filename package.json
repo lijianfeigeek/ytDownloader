@@ -56,6 +56,7 @@
 			"package.json",
 			"./assets/**/*",
 			"./src/*.js",
+			"./src/jobs/**/*.js",
 			"ffmpeg*",
 			"!ffmpeg.patch",
 			"translations"

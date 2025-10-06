@@ -331,7 +331,7 @@ getId("closeHidden").addEventListener("click", () => {
 
 document.addEventListener("keydown", (event) => {
 	if (
-		event.ctrlKey &&
+		(event.ctrlKey || event.metaKey) &&
 		event.key == "v" &&
 		document.activeElement.tagName !== "INPUT"
 	) {
@@ -448,22 +448,32 @@ async function getInfo(url) {
 	});
 
 	infoProcess.stderr.on("data", (error) => {
-		if (!error.toString().startsWith("WARNING")) {
-			validInfo = false;
-			// Error message handling
-			console.log(error.toString("utf8"));
-			getId("loadingWrapper").style.display = "none";
-			getId("incorrectMsg").textContent = i18n.__(
-				"Some error has occurred. Check your network and use correct URL"
-			);
-			getId("errorBtn").style.display = "inline-block";
-			getId("errorDetails").innerHTML = `
+		const errorString = error.toString("utf8");
+		const trimmedError = errorString.trim();
+		// Treat Python 3.9 deprecation notice as a non-fatal warning so yt-dlp output can still be processed
+		if (
+			trimmedError.startsWith("WARNING") ||
+			trimmedError
+				.toLowerCase()
+				.includes("support for python version 3.9 has been deprecated")
+		) {
+			console.warn(trimmedError);
+			return;
+		}
+		validInfo = false;
+		// Error message handling
+		console.log(errorString);
+		getId("loadingWrapper").style.display = "none";
+		getId("incorrectMsg").textContent = i18n.__(
+			"Some error has occurred. Check your network and use correct URL"
+		);
+		getId("errorBtn").style.display = "inline-block";
+		getId("errorDetails").innerHTML = `
 		<strong>URL: ${url}</strong>
 		<br><br>
-		${error.toString("utf8")}
+		${errorString}
 		`;
-			getId("errorDetails").title = i18n.__("Click to copy");
-		}
+		getId("errorDetails").title = i18n.__("Click to copy");
 	});
 
 	infoProcess.on("close", () => {

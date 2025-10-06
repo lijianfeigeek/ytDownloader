@@ -150,7 +150,10 @@ const mockTranscribe = async (job, audioPath, options) => {
   }
 
   // 创建转写文件
-  const transcriptPath = path.join(job.outputDir, 'transcript.txt');
+  const transcriptPath = path.join(
+    job.outputDir,
+    `${path.basename(audioPath, path.extname(audioPath))}.txt`
+  );
   fs.writeFileSync(transcriptPath, '这是一个测试转写结果。\nThis is a test transcript.');
 
   console.log(`📝 转写完成: ${transcriptPath}`);

@@ -65,6 +65,18 @@
 
     <button class="submitBtn" id="pasteLink">Click to paste playlist link from clipboard [Ctrl + V]</button>
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pasteBtn = document.getElementById('pasteLink');
+            if (pasteBtn) {
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                const shortcut = isMac ? '[Cmd + V]' : '[Ctrl + V]';
+                const originalText = pasteBtn.textContent.replace(/\[.*?\]/, '');
+                pasteBtn.textContent = originalText + ' ' + shortcut;
+            }
+        });
+    </script>
+
     <div id="options">
         <img src="../assets/images/close.png" alt="close" id="closeHidden">
         <div id="btnContainer">

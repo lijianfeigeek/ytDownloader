@@ -111,7 +111,7 @@ getId("pasteLink").addEventListener("click", () => {
 });
 
 document.addEventListener("keydown", (event) => {
-	if (event.ctrlKey && event.key == "v") {
+	if ((event.ctrlKey || event.metaKey) && event.key == "v") {
 		pasteLink();
 	}
 });

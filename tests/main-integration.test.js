@@ -138,7 +138,10 @@ class MockProcessManager {
       }
 
       setTimeout(() => {
-        const transcriptPath = path.join(job.outputDir, 'transcript.txt');
+        const transcriptPath = path.join(
+          job.outputDir,
+          `${path.basename(audioPath, path.extname(audioPath))}.txt`
+        );
         const transcriptContent = 'Mock transcript result.\n测试转写结果。';
         fs.writeFileSync(transcriptPath, transcriptContent);
 

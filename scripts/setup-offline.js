@@ -210,53 +210,121 @@ class OfflineDependencySetup {
   }
 
   /**
+   * 解析当前平台应下载的 yt-dlp 发行文件
+   */
+  getYtDlpArtifactInfo() {
+    if (this.platform === "win32") {
+      return { assetName: "yt-dlp.exe", binaryName: "yt-dlp.exe" };
+    }
+
+    if (this.platform === "darwin") {
+      return { assetName: "yt-dlp_macos", binaryName: "yt-dlp" };
+    }
+
+    if (this.platform === "linux") {
+      const arch = process.arch;
+      const archMap = {
+        x64: "yt-dlp_linux",
+        arm64: "yt-dlp_linux-aarch64",
+        arm: "yt-dlp_linux-armv7l",
+        armv7l: "yt-dlp_linux-armv7l",
+        armv6l: "yt-dlp_linux-armv6l"
+      };
+
+      const assetName = archMap[arch];
+
+      if (assetName) {
+        return { assetName, binaryName: "yt-dlp" };
+      }
+
+      console.warn(`⚠️ 未识别的 Linux 架构 ${arch}，将使用 Python 版本 yt-dlp`);
+      return { assetName: "yt-dlp", binaryName: "yt-dlp" };
+    }
+
+    const binaryName = this.platform === "win32" ? "yt-dlp.exe" : "yt-dlp";
+    return { assetName: "yt-dlp", binaryName };
+  }
+
+  /**
+   * 检测下载到的 yt-dlp 是否为 Python 启动脚本
+   */
+  isPythonShim(filePath) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        return false;
+      }
+
+      const fd = fs.openSync(filePath, "r");
+      const buffer = Buffer.alloc(64);
+      fs.readSync(fd, buffer, 0, buffer.length, 0);
+      fs.closeSync(fd);
+
+      const header = buffer.toString("utf8");
+      return header.includes("/usr/bin/env python3") || header.includes("python3");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * 下载 yt-dlp
    */
   async downloadYtDlp() {
-    const binaryName = this.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+    const { assetName, binaryName } = this.getYtDlpArtifactInfo();
     const targetPath = path.join(this.binDir, binaryName);
 
-    if (fs.existsSync(targetPath) && this.isExecutableFile(targetPath)) {
+    const legacyPythonWrapper =
+      this.platform !== "win32" && this.isPythonShim(targetPath);
+
+    if (
+      fs.existsSync(targetPath) &&
+      this.isExecutableFile(targetPath) &&
+      !legacyPythonWrapper
+    ) {
       this.results.push({
-        name: 'yt-dlp',
-        version: 'unknown',
-        status: '✅ Found',
+        name: "yt-dlp",
+        version: "unknown",
+        status: "✅ Found",
         path: targetPath,
-        executable: 'Yes',
-        notes: 'Binary exists'
+        executable: "Yes",
+        notes: "Binary exists"
       });
       return;
     }
 
-    let downloadUrl;
-    if (this.platform === 'win32') {
-      downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe';
-    } else {
-      downloadUrl = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
+    if (legacyPythonWrapper) {
+      console.log(
+        "🔄 检测到旧版 Python shim yt-dlp，准备下载独立二进制以移除 Python 依赖"
+      );
+      try {
+        fs.unlinkSync(targetPath);
+      } catch (_) {}
     }
 
+    const downloadUrl = `https://github.com/yt-dlp/yt-dlp/releases/latest/download/${assetName}`;
+
     try {
-      await this.downloadFile(downloadUrl, targetPath, 'yt-dlp');
+      await this.downloadFile(downloadUrl, targetPath, "yt-dlp");
       this.makeExecutable(targetPath);
 
       this.results.push({
-        name: 'yt-dlp',
-        version: 'latest',
-        status: '✅ Downloaded',
+        name: "yt-dlp",
+        version: "latest",
+        status: "✅ Downloaded",
         path: targetPath,
-        executable: 'Yes',
-        notes: 'Successfully downloaded from GitHub releases'
+        executable: "Yes",
+        notes: `Successfully downloaded ${assetName}`
       });
     } catch (error) {
       console.error(`❌ yt-dlp 下载失败: ${error.message}`);
-      console.log('💡 提示: 您可以手动下载或检查网络连接');
+      console.log("💡 提示: 您可以手动下载或检查网络连接");
 
       this.results.push({
-        name: 'yt-dlp',
-        version: 'latest',
-        status: '❌ Download failed',
+        name: "yt-dlp",
+        version: "latest",
+        status: "❌ Download failed",
         path: targetPath,
-        executable: 'No',
+        executable: "No",
         notes: `Download failed: ${error.message}`
       });
     }

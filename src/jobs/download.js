@@ -3,15 +3,20 @@
  * 提供视频下载功能，支持进度回调和错误处理
  */
 
-const path = require('path');
-const os = require('os');
+const path = require("path");
+const os = require("os");
+
+const runtimeRoot = process.env.YTDOWNLOADER_RUNTIME_PATH
+	? path.resolve(process.env.YTDOWNLOADER_RUNTIME_PATH)
+	: path.join(__dirname, "..", "..", "resources", "runtime");
+const runtimeBinDir = path.join(runtimeRoot, "bin");
 
 // 默认 yt-dlp 二进制路径配置
 const DEFAULT_YTDLP_PATHS = {
-  win32: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'yt-dlp.exe'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'yt-dlp'),
-  linux: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'yt-dlp'),
-  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'yt-dlp')
+	win32: path.join(runtimeBinDir, "yt-dlp.exe"),
+	darwin: path.join(runtimeBinDir, "yt-dlp"),
+	linux: path.join(runtimeBinDir, "yt-dlp"),
+	freebsd: path.join(runtimeBinDir, "yt-dlp")
 };
 
 /**

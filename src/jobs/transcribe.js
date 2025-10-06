@@ -3,34 +3,60 @@
  * 支持 Metal GPU 加速和 CPU fallback，实时进度解析
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+const { spawn } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
 
-// 默认 whisper.cpp 二进制路径配置
-const DEFAULT_WHISPER_PATHS = {
-  win32: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper.exe'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'whisper-macos'),
-  linux: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper'),
-  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'whisper')
-};
-
-// 默认模型路径配置
-const DEFAULT_MODEL_PATHS = {
-  win32: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  linux: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin'),
-  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'whisper', 'models', 'ggml-large-v3-turbo-q5_0.bin')
-};
+const runtimeRoot = process.env.YTDOWNLOADER_RUNTIME_PATH
+	? path.resolve(process.env.YTDOWNLOADER_RUNTIME_PATH)
+	: path.join(__dirname, "..", "..", "resources", "runtime");
+const whisperDir = path.join(runtimeRoot, "whisper");
+const whisperModelsDir = path.join(whisperDir, "models");
 
 /**
  * 获取默认 whisper.cpp 路径
  * @returns {string} whisper.cpp 二进制文件路径
  */
 function getDefaultWhisperPath() {
-  const platform = os.platform();
-  return DEFAULT_WHISPER_PATHS[platform] || DEFAULT_WHISPER_PATHS.linux;
+	const platform = os.platform();
+	const candidates = [];
+
+	switch (platform) {
+		case "win32":
+			candidates.push(path.join(whisperDir, "whisper.exe"));
+			break;
+
+		case "darwin":
+			candidates.push(path.join(whisperDir, "whisper-macos"));
+			break;
+
+		case "linux":
+			candidates.push(
+				path.join(whisperDir, "whisper-linux"),
+				path.join(whisperDir, "whisper"),
+				path.join(runtimeRoot, "bin", "whisper")
+			);
+			break;
+
+		case "freebsd":
+			candidates.push(
+				path.join(whisperDir, "whisper"),
+				path.join(runtimeRoot, "bin", "whisper")
+			);
+			break;
+
+		default:
+			candidates.push(path.join(whisperDir, "whisper"));
+	}
+
+	for (const candidate of candidates) {
+		if (fs.existsSync(candidate)) {
+			return candidate;
+		}
+	}
+
+	return candidates[0];
 }
 
 /**
@@ -38,8 +64,7 @@ function getDefaultWhisperPath() {
  * @returns {string} 模型文件路径
  */
 function getDefaultModelPath() {
-  const platform = os.platform();
-  return DEFAULT_MODEL_PATHS[platform] || DEFAULT_MODEL_PATHS.linux;
+	return path.join(whisperModelsDir, "ggml-large-v3-turbo-q5_0.bin");
 }
 
 /**
@@ -404,7 +429,9 @@ async function transcribe(job, audioPath, opts = {}) {
   }
 
   // 生成输出文件路径
-  const outputPath = path.join(job.outputDir, 'transcript.txt');
+  const audioBaseName = path.basename(audioPath);
+  const audioBaseNameWithoutExt = path.basename(audioPath, path.extname(audioPath));
+  const outputPath = path.join(job.outputDir, `${audioBaseNameWithoutExt}.txt`);
 
   // 检查输出目录
   const outputDir = path.dirname(outputPath);
@@ -493,11 +520,7 @@ async function transcribe(job, audioPath, opts = {}) {
     let transcriptPath = outputPath;
 
     // whisper.cpp 在音频文件同目录生成输出文件，文件名为 输入文件名.txt
-    const audioBaseName = path.basename(audioPath); // 包含扩展名的完整文件名
     const defaultOutputPath = path.join(path.dirname(audioPath), `${audioBaseName}.txt`);
-
-    // 也可能使用不带扩展名的音频文件名
-    const audioBaseNameWithoutExt = path.basename(audioPath, path.extname(audioPath));
     const altOutputPath = path.join(path.dirname(audioPath), `${audioBaseNameWithoutExt}.txt`);
 
     // 按优先级查找文件

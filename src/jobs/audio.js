@@ -3,17 +3,22 @@
  * 提供视频到音频的转换功能，支持 MP3 和 WAV 格式
  */
 
-const { spawn } = require('child_process');
-const path = require('path');
-const fs = require('fs');
-const os = require('os');
+const { spawn } = require("child_process");
+const path = require("path");
+const fs = require("fs");
+const os = require("os");
+
+const runtimeRoot = process.env.YTDOWNLOADER_RUNTIME_PATH
+	? path.resolve(process.env.YTDOWNLOADER_RUNTIME_PATH)
+	: path.join(__dirname, "..", "..", "resources", "runtime");
+const runtimeBinDir = path.join(runtimeRoot, "bin");
 
 // 默认 ffmpeg 二进制路径配置
 const DEFAULT_FFMPEG_PATHS = {
-  win32: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'ffmpeg.exe'),
-  darwin: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'ffmpeg'),
-  linux: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'ffmpeg'),
-  freebsd: path.join(process.cwd(), 'resources', 'runtime', 'bin', 'ffmpeg')
+	win32: path.join(runtimeBinDir, "ffmpeg.exe"),
+	darwin: path.join(runtimeBinDir, "ffmpeg"),
+	linux: path.join(runtimeBinDir, "ffmpeg"),
+	freebsd: path.join(runtimeBinDir, "ffmpeg")
 };
 
 /**

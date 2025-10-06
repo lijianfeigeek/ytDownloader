@@ -14,6 +14,19 @@
     <!-- Translating -->
     <script>window.i18n = new (require('../translations/i18n'));</script>
 
+    <!-- Fix platform-specific keyboard shortcuts -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const pasteBtn = document.getElementById('pasteUrl');
+            if (pasteBtn) {
+                const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+                const shortcut = isMac ? '[Cmd + V]' : '[Ctrl + V]';
+                const originalText = pasteBtn.textContent.replace(/\[.*?\]/, '');
+                pasteBtn.textContent = originalText + ' ' + shortcut;
+            }
+        });
+    </script>
+
 </head>
 
 <div id="popupBox">
