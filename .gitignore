@@ -8,3 +8,6 @@ ffmpeg
 ffmpeg.exe
 generated-sources.json
 ffmpeg.patch
+
+# Runtime dependencies and build artifacts
+resources/runtime/*

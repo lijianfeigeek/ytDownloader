@@ -1,6 +1,6 @@
 # 离线运行时修复待办清单
 
-- [ ] **1. 更新 Renderer 默认路径检测**  
+- [x] **1. 更新 Renderer 默认路径检测**  
   提示词：
   ```markdown
   你是一位资深的Electron前端工程师，请在 `src/renderer.js` 中实现以下调整：
@@ -9,12 +9,12 @@
   3. 在 ffmpeg 变量初始化处优先使用 `bundledFfmpeg`，保持原有 fallback 逻辑。
   约束：不移除现有 Homebrew/环境变量/which 逻辑，确保其它平台仍能走旧流程；不要在此任务修改 UI 文案。
   CHECKLIST:
-  - [ ] `bundledYtDlp` 与 `bundledFfmpeg` 常量定义完成
-  - [ ] 内置二进制存在时不再触发 Homebrew 弹框
-  - [ ] macOS/Windows/Linux 均能回退到原有路径查找
+  - [x] `bundledYtDlp` 与 `bundledFfmpeg` 常量定义完成
+  - [x] 内置二进制存在时不再触发 Homebrew 弹框
+  - [x] macOS/Windows/Linux 均能回退到原有路径查找
   ```
 
-- [ ] **2. 升级 setup-offline 脚本：自动下载依赖**  
+- [x] **2. 升级 setup-offline 脚本：自动下载依赖**  
 ultrathink 提示词：
   ```markdown
   ultrathink 你是一位资深Node脚本工程师，请重构 `scripts/setup-offline.js` 达成以下目标：
@@ -23,9 +23,9 @@ ultrathink 提示词：
   3. 脚本应可被 `npm run setup-offline` 调用，无需额外参数；若某依赖已存在则跳过。
   约束：避免引入重量级依赖库；下载失败时应提供重试提示但不中断后续检查。
   CHECKLIST:
-  - [ ] 自动下载逻辑覆盖四个必需组件
-  - [ ] 脚本末尾输出更新后的依赖表
-  - [ ] 在干净环境下运行一次后全部状态均为 Ready
+  - [x] 自动下载逻辑覆盖四个必需组件
+  - [x] 脚本末尾输出更新后的依赖表
+  - [x] 在干净环境下运行一次后全部状态均为 Ready
   ```
 
 - [ ] **3. 增强 GUI 依赖检查弹窗**  
