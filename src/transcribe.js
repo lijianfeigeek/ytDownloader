@@ -47,6 +47,10 @@ const elements = {
     closeDepsModal: null,
     closeDepsModalBtn: null,
     runSetupOfflineBtn: null,
+    setupOfflineProgress: null,
+    setupOfflineStatus: null,
+    setupOfflineProgressBar: null,
+    setupOfflineLog: null,
     errorToast: null,
     successToast: null
 };
@@ -84,6 +88,10 @@ function initializeElements() {
     elements.closeDepsModal = getId('close-deps-modal');
     elements.closeDepsModalBtn = getId('close-deps-modal-btn');
     elements.runSetupOfflineBtn = getId('run-setup-offline-btn');
+    elements.setupOfflineProgress = getId('setup-offline-progress');
+    elements.setupOfflineStatus = getId('setup-offline-status');
+    elements.setupOfflineProgressBar = getId('setup-offline-progress-bar');
+    elements.setupOfflineLog = getId('setup-offline-log');
     elements.errorToast = getId('error-toast');
     elements.successToast = getId('success-toast');
 }
@@ -707,32 +715,41 @@ function hideDepsModal() {
  * 运行 setup-offline 脚本
  */
 async function runSetupOffline() {
+    const button = getId('run-setup-offline-btn');
+    const progressSection = getId('setup-offline-progress');
+    const progressStatus = getId('setup-offline-status');
+    const progressBar = getId('setup-offline-progress-bar');
+    const progressLog = getId('setup-offline-log');
+
     try {
-        hideDepsModal();
+        // 禁用按钮并显示加载状态
+        button.disabled = true;
+        button.innerHTML = '<span i18n="transcribe.runningSetupOffline">正在运行...</span>';
+
+        // 显示进度区域
+        progressSection.style.display = 'block';
+        progressStatus.textContent = '初始化 setup-offline 脚本...';
+        progressBar.style.width = '0%';
+        progressLog.textContent = '';
+
         showToast('正在运行 setup-offline 脚本...', 'info');
         addLog('开始运行 setup-offline 脚本');
 
-        // 这里可以通过 IPC 调用主进程运行脚本，或者提供用户指导
-        // 目前先提供用户指导
+        // 通过 IPC 调用主进程运行脚本
         const result = await ipcRenderer.invoke('app:runSetupOffline');
 
-        if (result && result.success) {
-            showToast('setup-offline 脚本执行完成', 'success');
-            addLog('setup-offline 脚本执行完成');
-            // 重新检查依赖
-            setTimeout(() => {
-                checkDependencies();
-            }, 2000);
-        } else {
-            // 提供手动运行指导
-            showToast('请在终端运行: npm run setup-offline', 'info');
-            addLog('请在终端运行: npm run setup-offline');
-        }
+        // 注意：进度将通过 IPC 事件实时更新，这里只是等待最终结果
+        // 不需要在这里处理成功/失败，因为会通过事件回调处理
+
     } catch (error) {
-        // 如果 IPC 调用失败，提供手动运行指导
-        showToast('请在终端运行: npm run setup-offline', 'info');
-        addLog('请在终端运行: npm run setup-offline');
-        console.log('setup-offline 指导:', error);
+        // 如果 IPC 调用失败，显示错误并恢复按钮状态
+        button.disabled = false;
+        button.innerHTML = '<span i18n="transcribe.runSetupOffline">运行 setup-offline</span>';
+        progressSection.style.display = 'none';
+
+        showToast(`setup-offline 执行失败: ${error.message}`, 'error');
+        addLog(`setup-offline 执行失败: ${error.message}`);
+        console.log('setup-offline 错误:', error);
     }
 }
 
@@ -920,6 +937,84 @@ function initializeEventListeners() {
     ipcRenderer.on('job:diagnostics-error', (event, data) => {
         addLog(`[${data.jobId}] 诊断包导出失败: ${data.error.message || data.error}`);
         showToast(`诊断包导出失败: ${data.error.message || data.error}`, 'error');
+    });
+
+    // Setup-offline 进度事件
+    ipcRenderer.on('app:setupOffline:progress', (event, data) => {
+        const progressStatus = getId('setup-offline-status');
+        const progressBar = getId('setup-offline-progress-bar');
+        const progressLog = getId('setup-offline-log');
+
+        // 更新进度状态
+        if (data.stage) {
+            progressStatus.textContent = data.stage;
+        }
+
+        // 更新进度条
+        if (data.percentage !== undefined) {
+            progressBar.style.width = `${data.percentage}%`;
+        }
+
+        // 追加日志
+        if (data.message) {
+            const timestamp = new Date().toLocaleTimeString();
+            progressLog.textContent += `[${timestamp}] ${data.message}\n`;
+            progressLog.scrollTop = progressLog.scrollHeight;
+        }
+
+        // 添加到全局日志
+        addLog(`setup-offline: ${data.message || data.stage}`);
+    });
+
+    // Setup-offline 完成事件
+    ipcRenderer.on('app:setupOffline:done', (event, data) => {
+        const button = getId('run-setup-offline-btn');
+        const progressSection = getId('setup-offline-progress');
+        const progressLog = getId('setup-offline-log');
+
+        // 恢复按钮状态
+        button.disabled = false;
+        button.innerHTML = '<span i18n="transcribe.runSetupOffline">运行 setup-offline</span>';
+
+        // 显示完成信息
+        const timestamp = new Date().toLocaleTimeString();
+        progressLog.textContent += `[${timestamp}] ✅ setup-offline 执行完成\n`;
+        progressLog.scrollTop = progressLog.scrollHeight;
+
+        addLog('setup-offline 脚本执行完成', 'info');
+        showToast('setup-offline 脚本执行完成', 'success');
+
+        // 延迟隐藏进度区域并刷新依赖检查
+        setTimeout(() => {
+            progressSection.style.display = 'none';
+
+            // 自动刷新依赖检查结果
+            checkDependencies();
+        }, 3000);
+    });
+
+    // Setup-offline 错误事件
+    ipcRenderer.on('app:setupOffline:error', (event, data) => {
+        const button = getId('run-setup-offline-btn');
+        const progressSection = getId('setup-offline-progress');
+        const progressLog = getId('setup-offline-log');
+
+        // 恢复按钮状态
+        button.disabled = false;
+        button.innerHTML = '<span i18n="transcribe.runSetupOffline">运行 setup-offline</span>';
+
+        // 显示错误信息
+        const timestamp = new Date().toLocaleTimeString();
+        progressLog.textContent += `[${timestamp}] ❌ setup-offline 执行失败: ${data.message || data.error}\n`;
+        progressLog.scrollTop = progressLog.scrollHeight;
+
+        addLog(`setup-offline 执行失败: ${data.message || data.error}`, 'error');
+        showToast(`setup-offline 执行失败: ${data.message || data.error}`, 'error');
+
+        // 延迟隐藏进度区域
+        setTimeout(() => {
+            progressSection.style.display = 'none';
+        }, 5000);
     });
 }
 

@@ -28,7 +28,7 @@ ultrathink 提示词：
   - [x] 在干净环境下运行一次后全部状态均为 Ready
   ```
 
-- [ ] **3. 增强 GUI 依赖检查弹窗**  
+- [x] **3. 增强 GUI 依赖检查弹窗**  
   提示词：
   ```markdown
   你是一位资深Electron前端工程师，请更新 `src/transcribe.js` 与 `html/transcribe.html`：
@@ -36,9 +36,9 @@ ultrathink 提示词：
   2. 监听主进程推送的 `app:setupOffline:progress`、`app:setupOffline:done`、`app:setupOffline:error` 事件，在模态内实时显示进度并于脚本完成后自动调用 `checkDependencies()` 刷新结果。
   约束：确保 UI 操作不会阻塞主线程；日志面板或模态内必须展示实时反馈。
   CHECKLIST:
-  - [ ] 按钮触发脚本且执行期间状态可见
-  - [ ] 接收到进度/完成/错误事件时界面更新正确
-  - [ ] 脚本结束后依赖列表自动刷新
+  - [x] 按钮触发脚本且执行期间状态可见
+  - [x] 接收到进度/完成/错误事件时界面更新正确
+  - [x] 脚本结束后依赖列表自动刷新
   ```
 
 - [ ] **4. 提供 setup-offline 进度 IPC**  
