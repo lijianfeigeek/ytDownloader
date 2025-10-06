@@ -33,6 +33,81 @@ const configFile = path.join(app.getPath("userData"), "config.json");
 let setupOfflineRunning = false;
 let setupOfflineProcess = null;
 
+/**
+ * 初始化二进制文件路径配置
+ * 在 createWindow 之前调用，确保配置文件包含必要的二进制路径
+ */
+function initializeBinaryPaths() {
+    console.log("正在初始化二进制路径配置...");
+
+    // 要检查的配置项和对应的二进制文件名
+    const binaryConfigs = [
+        { configKey: 'yt-dlp-path', binaryName: 'yt-dlp' },
+        { configKey: 'ffmpeg-path', binaryName: 'ffmpeg' }
+    ];
+
+    // 检查 resources/runtime/bin 目录中的二进制文件
+    const runtimeBinDir = path.join(__dirname, 'resources', 'runtime', 'bin');
+
+    // 读取现有配置
+    let config = {};
+    let configChanged = false;
+
+    if (fs.existsSync(configFile)) {
+        try {
+            const fileContent = fs.readFileSync(configFile, 'utf8');
+            config = fileContent ? JSON.parse(fileContent) : {};
+            console.log("已读取现有配置文件");
+        } catch (error) {
+            console.error("读取配置文件失败:", error);
+            config = {};
+        }
+    }
+
+    // 检查每个二进制配置
+    binaryConfigs.forEach(({ configKey, binaryName }) => {
+        // 如果配置已经存在且文件存在，跳过
+        if (config[configKey] && fs.existsSync(config[configKey])) {
+            console.log(`${configKey} 已配置: ${config[configKey]}`);
+            return;
+        }
+
+        // 如果配置存在但文件不存在，或者配置不存在，则检查默认路径
+        const defaultBinaryPath = path.join(runtimeBinDir, binaryName);
+
+        if (fs.existsSync(defaultBinaryPath)) {
+            // 只有当配置不存在时才写入默认值
+            if (!config[configKey]) {
+                console.log(`设置 ${configKey} 默认值: ${defaultBinaryPath}`);
+                config[configKey] = defaultBinaryPath;
+                configChanged = true;
+            } else {
+                console.log(`${configKey} 已配置但文件不存在: ${config[configKey]}，保持用户自定义路径`);
+            }
+        } else {
+            console.log(`${configKey} 未配置且默认路径不存在: ${defaultBinaryPath}`);
+        }
+    });
+
+    // 如果配置有变更，写入文件
+    if (configChanged) {
+        try {
+            // 确保用户数据目录存在
+            const userDataDir = path.dirname(configFile);
+            if (!fs.existsSync(userDataDir)) {
+                fs.mkdirSync(userDataDir, { recursive: true });
+            }
+
+            fs.writeFileSync(configFile, JSON.stringify(config, null, 2));
+            console.log("二进制路径配置已更新到配置文件");
+        } catch (error) {
+            console.error("写入配置文件失败:", error);
+        }
+    } else {
+        console.log("二进制路径配置无需更新");
+    }
+}
+
 function createWindow() {
 	const bounds = JSON.parse((getItem("bounds", configFile) || "{}"));
 	console.log("bounds:", bounds)
@@ -109,6 +184,9 @@ if (!gotTheLock) {
 }
 
 app.whenReady().then(() => {
+	// 初始化二进制路径配置
+	initializeBinaryPaths();
+
 	// Logging
 	console.log("Locale:" + app.getLocale());
 	console.log("Version: " + app.getVersion());
