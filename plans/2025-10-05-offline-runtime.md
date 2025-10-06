@@ -41,7 +41,7 @@ ultrathink 提示词：
   - [x] 脚本结束后依赖列表自动刷新
   ```
 
-- [ ] **4. 提供 setup-offline 进度 IPC**  
+- [x] **4. 提供 setup-offline 进度 IPC**  
   提示词：
   ```markdown
   你是一位资深Electron主进程工程师，请完善 `main.js` 的 `app:runSetupOffline` 处理：
@@ -49,9 +49,9 @@ ultrathink 提示词：
   2. 脚本退出时发送 `app:setupOffline:done`，包含 `exitCode`、`stdout`、`stderr` 汇总；异常则发送 `app:setupOffline:error`。
   3. 处理并发点击：若已有脚本在运行，直接返回正在执行的提示。
   CHECKLIST:
-  - [ ] 前端能收到进度与完成事件
-  - [ ] 脚本退出后没有残留进程
-  - [ ] 重复触发时不会并发创建多份脚本
+  - [x] 前端能收到进度与完成事件
+  - [x] 脚本退出后没有残留进程
+  - [x] 重复触发时不会并发创建多份脚本
   ```
 
 - [ ] **5. 自动配置默认二进制路径**  

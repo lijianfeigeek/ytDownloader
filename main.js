@@ -29,6 +29,10 @@ let indexIsOpen = true;
 let trayEnabled = false;
 const configFile = path.join(app.getPath("userData"), "config.json");
 
+// setup-offline 脚本运行状态
+let setupOfflineRunning = false;
+let setupOfflineProcess = null;
+
 function createWindow() {
 	const bounds = JSON.parse((getItem("bounds", configFile) || "{}"));
 	console.log("bounds:", bounds)
@@ -1391,17 +1395,19 @@ ipcMain.handle('app:openDownloadsFolder', async () => {
  */
 ipcMain.handle('app:runSetupOffline', async () => {
 	try {
+		// 处理并发点击
+		if (setupOfflineRunning && setupOfflineProcess && !setupOfflineProcess.killed) {
+			return {
+				success: false,
+				message: 'setup-offline 脚本正在运行中，请等待完成后再试'
+			};
+		}
+
 		const { spawn } = require('child_process');
 		const scriptPath = path.join(__dirname, 'scripts', 'setup-offline.js');
 
 		// 检查脚本是否存在
 		if (!fs.existsSync(scriptPath)) {
-			if (win) {
-				win.webContents.send('app:setupOffline:error', {
-					message: 'setup-offline.js 脚本不存在',
-					code: 'SCRIPT_NOT_FOUND'
-				});
-			}
 			return {
 				success: false,
 				error: {
@@ -1411,150 +1417,86 @@ ipcMain.handle('app:runSetupOffline', async () => {
 			};
 		}
 
-		// 发送初始化事件
-		if (win) {
-			win.webContents.send('app:setupOffline:progress', {
-				stage: '初始化 setup-offline 脚本...',
-				percentage: 0,
-				message: '准备运行依赖安装脚本'
-			});
-		}
-
-		// 以阻塞方式运行脚本，以便实时监控输出
-		const child = spawn('node', [scriptPath], {
-			stdio: ['ignore', 'pipe', 'pipe'],
-			cwd: __dirname,
-			env: { ...process.env, FORCE_COLOR: '0' } // 禁用颜色以简化解析
-		});
+		// 标记为运行中
+		setupOfflineRunning = true;
 
 		let stdoutBuffer = '';
 		let stderrBuffer = '';
-		let totalSteps = 0;
-		let currentStep = 0;
-		let currentStage = '';
 
-		// 解析输出并发送进度事件
-		const parseAndSendProgress = (data, isError = false) => {
-			const lines = data.toString().split('\n').filter(line => line.trim());
+		// 使用 spawn 运行脚本
+		const child = spawn('node', [scriptPath], {
+			stdio: ['ignore', 'pipe', 'pipe'],
+			cwd: __dirname
+		});
 
-			for (const line of lines) {
-				// 解析不同类型的输出
-				let progressData = { message: line };
+		// 保存进程引用
+		setupOfflineProcess = child;
 
-				// 检测阶段开始
-				if (line.includes('检查现有依赖')) {
-					progressData.stage = '检查现有依赖...';
-					progressData.percentage = 10;
-				} else if (line.includes('开始下载缺失的依赖')) {
-					progressData.stage = '下载缺失的依赖...';
-					progressData.percentage = 20;
-				} else if (line.includes('创建目录')) {
-					progressData.stage = '创建目录结构...';
-					progressData.percentage = Math.min(25, currentStep + 1);
-				} else if (line.includes('开始下载')) {
-					progressData.stage = '下载文件中...';
-					progressData.percentage = Math.min(60, currentStep + 10);
-				} else if (line.includes('下载完成')) {
-					progressData.stage = '下载完成';
-					progressData.percentage = Math.min(70, currentStep + 15);
-				} else if (line.includes('正在解压')) {
-					progressData.stage = '解压文件中...';
-					progressData.percentage = Math.min(80, currentStep + 20);
-				} else if (line.includes('编译') || line.includes('编译')) {
-					progressData.stage = '编译 whisper.cpp...';
-					progressData.percentage = Math.min(85, currentStep + 25);
-				} else if (line.includes('安装成功') || line.includes('解压完成')) {
-					progressData.stage = '安装组件...';
-					progressData.percentage = Math.min(90, currentStep + 30);
-				} else if (line.includes('离线依赖设置报告') || line.includes('所有依赖已就绪')) {
-					progressData.stage = '生成安装报告...';
-					progressData.percentage = 95;
-				} else if (line.includes('✅') || line.includes('❌')) {
-					// 状态更新，增加进度
-					currentStep++;
-					progressData.percentage = Math.min(95, 10 + currentStep * 8);
-				}
-
-				// 估算进度百分比
-				if (!progressData.percentage) {
-					progressData.percentage = Math.min(95, 10 + currentStep * 5);
-				}
-
-				// 发送进度事件到前端
-				if (win && line.trim()) {
-					win.webContents.send('app:setupOffline:progress', progressData);
-				}
-
-				// 更新当前阶段
-				if (progressData.stage) {
-					currentStage = progressData.stage;
-				}
-
-				console.log(`[setup-offline] ${line}`);
-			}
-		};
-
-		// 监听 stdout
+		// 实时监听 stdout
 		child.stdout?.on('data', (data) => {
-			stdoutBuffer += data.toString();
-			parseAndSendProgress(data, false);
+			const chunk = data.toString();
+			stdoutBuffer += chunk;
+
+			// 推送原始数据块到前端
+			if (win) {
+				win.webContents.send('app:setupOffline:progress', {
+					type: 'stdout',
+					chunk: chunk
+				});
+			}
 		});
 
-		// 监听 stderr
+		// 实时监听 stderr
 		child.stderr?.on('data', (data) => {
-			stderrBuffer += data.toString();
-			parseAndSendProgress(data, true);
+			const chunk = data.toString();
+			stderrBuffer += chunk;
+
+			// 推送原始数据块到前端
+			if (win) {
+				win.webContents.send('app:setupOffline:progress', {
+					type: 'stderr',
+					chunk: chunk
+				});
+			}
 		});
 
-		// 监听进程结束
+		// 监听进程退出
 		child.on('close', (code) => {
 			console.log(`[setup-offline] 脚本执行完成，退出码: ${code}`);
 
-			if (code === 0) {
-				// 发送完成事件
-				if (win) {
-					win.webContents.send('app:setupOffline:progress', {
-						stage: '完成安装',
-						percentage: 100,
-						message: '所有依赖安装完成'
-					});
+			// 重置运行状态
+			setupOfflineRunning = false;
+			setupOfflineProcess = null;
 
-					setTimeout(() => {
-						win.webContents.send('app:setupOffline:done', {
-							code: 0,
-							message: 'setup-offline 脚本执行成功',
-							stdout: stdoutBuffer,
-							stderr: stderrBuffer
-						});
-					}, 1000);
-				}
-			} else {
-				// 发送错误事件
-				if (win) {
-					win.webContents.send('app:setupOffline:error', {
-						code: 'SCRIPT_FAILED',
-						message: `脚本执行失败，退出码: ${code}`,
-						stdout: stdoutBuffer,
-						stderr: stderrBuffer
-					});
-				}
+			// 发送完成事件，包含完整输出
+			if (win) {
+				win.webContents.send('app:setupOffline:done', {
+					exitCode: code,
+					stdout: stdoutBuffer,
+					stderr: stderrBuffer
+				});
 			}
 		});
 
-		// 监听进程错误
+		// 监听进程错误（如文件不存在、权限不足等）
 		child.on('error', (error) => {
 			console.error('[setup-offline] 脚本执行错误:', error);
 
+			// 重置运行状态
+			setupOfflineRunning = false;
+			setupOfflineProcess = null;
+
+			// 发送错误事件
 			if (win) {
 				win.webContents.send('app:setupOffline:error', {
-					code: 'PROCESS_ERROR',
 					message: error.message,
+					code: 'PROCESS_ERROR',
 					error: error.toString()
 				});
 			}
 		});
 
-		// 返回启动成功的信息
+		// 返回启动成功信息
 		return {
 			success: true,
 			message: 'setup-offline 脚本已启动',
@@ -1564,10 +1506,15 @@ ipcMain.handle('app:runSetupOffline', async () => {
 	} catch (error) {
 		console.error('运行 setup-offline 脚本失败:', error);
 
+		// 重置运行状态
+		setupOfflineRunning = false;
+		setupOfflineProcess = null;
+
+		// 发送错误事件
 		if (win) {
 			win.webContents.send('app:setupOffline:error', {
-				code: 'RUN_SETUP_OFFLINE_ERROR',
 				message: error.message,
+				code: 'SPAWN_ERROR',
 				error: error.toString()
 			});
 		}
@@ -1575,7 +1522,7 @@ ipcMain.handle('app:runSetupOffline', async () => {
 		return {
 			success: false,
 			error: {
-				code: 'RUN_SETUP_OFFLINE_ERROR',
+				code: 'SPAWN_ERROR',
 				message: error.message
 			}
 		};

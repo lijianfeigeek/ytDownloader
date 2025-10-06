@@ -738,7 +738,19 @@ async function runSetupOffline() {
         // 通过 IPC 调用主进程运行脚本
         const result = await ipcRenderer.invoke('app:runSetupOffline');
 
-        // 注意：进度将通过 IPC 事件实时更新，这里只是等待最终结果
+        // 处理并发点击的情况
+        if (!result.success && result.message) {
+            // 恢复按钮状态
+            button.disabled = false;
+            button.innerHTML = '<span i18n="transcribe.runSetupOffline">运行 setup-offline</span>';
+            progressSection.style.display = 'none';
+
+            showToast(result.message, 'info');
+            addLog(`setup-offline: ${result.message}`);
+            return;
+        }
+
+        // 注意：正常进度将通过 IPC 事件实时更新，这里只是等待最终结果
         // 不需要在这里处理成功/失败，因为会通过事件回调处理
 
     } catch (error) {
@@ -945,25 +957,74 @@ function initializeEventListeners() {
         const progressBar = getId('setup-offline-progress-bar');
         const progressLog = getId('setup-offline-log');
 
-        // 更新进度状态
-        if (data.stage) {
-            progressStatus.textContent = data.stage;
-        }
-
-        // 更新进度条
-        if (data.percentage !== undefined) {
-            progressBar.style.width = `${data.percentage}%`;
-        }
-
-        // 追加日志
-        if (data.message) {
+        // 处理新的数据格式：{ type: 'stdout'|'stderr', chunk }
+        if (data.type && data.chunk) {
+            // 直接显示原始输出块
             const timestamp = new Date().toLocaleTimeString();
-            progressLog.textContent += `[${timestamp}] ${data.message}\n`;
-            progressLog.scrollTop = progressLog.scrollHeight;
-        }
+            const lines = data.chunk.split('\n').filter(line => line.trim());
 
-        // 添加到全局日志
-        addLog(`setup-offline: ${data.message || data.stage}`);
+            lines.forEach(line => {
+                if (line.trim()) {
+                    progressLog.textContent += `[${timestamp}] ${line}\n`;
+
+                    // 简单的进度估算
+                    let percentage = 0;
+                    let status = '运行中...';
+
+                    if (line.includes('检查现有依赖')) {
+                        status = '检查现有依赖...';
+                        percentage = 10;
+                    } else if (line.includes('开始下载')) {
+                        status = '下载文件中...';
+                        percentage = 30;
+                    } else if (line.includes('下载完成')) {
+                        status = '下载完成';
+                        percentage = 60;
+                    } else if (line.includes('正在解压') || line.includes('解压')) {
+                        status = '解压文件中...';
+                        percentage = 75;
+                    } else if (line.includes('编译')) {
+                        status = '编译 whisper.cpp...';
+                        percentage = 85;
+                    } else if (line.includes('✅') || line.includes('成功')) {
+                        status = '安装组件...';
+                        percentage = Math.min(95, percentage + 5);
+                    } else if (line.includes('离线依赖设置报告')) {
+                        status = '生成报告...';
+                        percentage = 98;
+                    }
+
+                    progressStatus.textContent = status;
+                    progressBar.style.width = `${percentage}%`;
+                }
+            });
+
+            progressLog.scrollTop = progressLog.scrollHeight;
+
+            // 添加到全局日志（只记录关键信息）
+            const cleanChunk = data.chunk.trim();
+            if (cleanChunk && !cleanChunk.startsWith('   ')) { // 忽略缩进的详细信息
+                addLog(`setup-offline: ${cleanChunk.substring(0, 100)}${cleanChunk.length > 100 ? '...' : ''}`);
+            }
+        }
+        // 兼容旧格式（如果有的话）
+        else if (data.stage || data.message) {
+            if (data.stage) {
+                progressStatus.textContent = data.stage;
+            }
+
+            if (data.percentage !== undefined) {
+                progressBar.style.width = `${data.percentage}%`;
+            }
+
+            if (data.message) {
+                const timestamp = new Date().toLocaleTimeString();
+                progressLog.textContent += `[${timestamp}] ${data.message}\n`;
+                progressLog.scrollTop = progressLog.scrollHeight;
+            }
+
+            addLog(`setup-offline: ${data.message || data.stage}`);
+        }
     });
 
     // Setup-offline 完成事件
@@ -971,6 +1032,8 @@ function initializeEventListeners() {
         const button = getId('run-setup-offline-btn');
         const progressSection = getId('setup-offline-progress');
         const progressLog = getId('setup-offline-log');
+        const progressStatus = getId('setup-offline-status');
+        const progressBar = getId('setup-offline-progress-bar');
 
         // 恢复按钮状态
         button.disabled = false;
@@ -978,17 +1041,35 @@ function initializeEventListeners() {
 
         // 显示完成信息
         const timestamp = new Date().toLocaleTimeString();
-        progressLog.textContent += `[${timestamp}] ✅ setup-offline 执行完成\n`;
-        progressLog.scrollTop = progressLog.scrollHeight;
+        const exitCode = data.exitCode !== undefined ? data.exitCode : (data.code !== undefined ? data.code : 0);
 
-        addLog('setup-offline 脚本执行完成', 'info');
-        showToast('setup-offline 脚本执行完成', 'success');
+        if (exitCode === 0) {
+            progressLog.textContent += `[${timestamp}] ✅ setup-offline 执行完成\n`;
+            progressStatus.textContent = '安装完成';
+            progressBar.style.width = '100%';
+
+            addLog('setup-offline 脚本执行完成', 'info');
+            showToast('setup-offline 脚本执行完成', 'success');
+        } else {
+            progressLog.textContent += `[${timestamp}] ❌ setup-offline 执行失败 (退出码: ${exitCode})\n`;
+            progressStatus.textContent = '执行失败';
+            progressBar.style.width = '100%';
+            progressBar.style.backgroundColor = 'var(--redBtn)';
+
+            addLog(`setup-offline 脚本执行失败，退出码: ${exitCode}`, 'error');
+            showToast(`setup-offline 执行失败 (退出码: ${exitCode})`, 'error');
+        }
+
+        progressLog.scrollTop = progressLog.scrollHeight;
 
         // 延迟隐藏进度区域并刷新依赖检查
         setTimeout(() => {
             progressSection.style.display = 'none';
 
-            // 自动刷新依赖检查结果
+            // 重置进度条颜色
+            progressBar.style.backgroundColor = '';
+
+            // 无论成功失败都刷新依赖检查结果
             checkDependencies();
         }, 3000);
     });
