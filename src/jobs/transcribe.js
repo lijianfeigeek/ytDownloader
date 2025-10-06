@@ -177,10 +177,11 @@ function buildWhisperArgs(modelPath, audioPath, opts = {}) {
     args.push('--language', opts.language);
   }
 
-  // Metal 编码器设置
-  if (opts.useMetal !== false && os.platform() === 'darwin') {
-    args.push('--encoder', 'metal');
+  // GPU 设置 - 在 macOS 上默认启用 GPU 加速，除非明确禁用
+  if (opts.useMetal === false) {
+    args.push('--no-gpu');
   }
+  // 否则让 whisper.cpp 自动检测并使用 GPU (如果可用)
 
   // 其他选项
   if (opts.threads) {
@@ -200,12 +201,26 @@ function buildWhisperArgs(modelPath, audioPath, opts = {}) {
  * @returns {Object|null} 解析出的进度信息
  */
 function parseProgressOutput(output) {
-  // 匹配进度格式: [percent] 时间信息
-  const progressMatch = output.match(/\[(\d+)%\]/);
+  // 匹配多种进度格式:
+  // 1. [percent] 时间信息 (旧格式)
+  // 2. whisper_print_progress_callback: progress =  XX% (新格式)
+  let progressMatch = output.match(/\[(\d+)%\]/);
+  let percent = 0;
+  let message = output.trim();
 
   if (progressMatch) {
-    const percent = parseInt(progressMatch[1]);
+    percent = parseInt(progressMatch[1]);
+  } else {
+    // 尝试匹配 whisper.cpp 的新进度格式
+    progressMatch = output.match(/progress\s*=\s*(\d+)%/);
+    if (progressMatch) {
+      percent = parseInt(progressMatch[1]);
+      // 提取更简洁的消息
+      message = `转写进度: ${percent}%`;
+    }
+  }
 
+  if (percent > 0) {
     // 尝试解析速度和 ETA 信息
     const speedMatch = output.match(/(\d+\.\d+)x/);
     const etaMatch = output.match(/in (\d+)s/);
@@ -214,7 +229,7 @@ function parseProgressOutput(output) {
       percent,
       speed: speedMatch ? parseFloat(speedMatch[1]) : 0,
       eta: etaMatch ? parseInt(etaMatch[1]) : 0,
-      message: output.trim()
+      message
     };
   }
 
@@ -266,6 +281,15 @@ function executeWhisper(args, whisperPath, onProgress = null, onLog = null, spaw
 
       if (onLog) {
         onLog('stderr', output);
+      }
+
+      // 解析进度信息 (whisper.cpp 在 stderr 输出进度)
+      if (onProgress) {
+        const progress = parseProgressOutput(output);
+        if (progress && progress.percent > lastProgress) {
+          lastProgress = progress.percent;
+          onProgress(progress);
+        }
       }
     });
 
@@ -432,8 +456,9 @@ async function transcribe(job, audioPath, opts = {}) {
         }
       } catch (error) {
         // 如果是 Metal 相关错误，标记需要 fallback
-        if (error.details?.args?.includes('--encoder metal') ||
-            error.message.toLowerCase().includes('metal')) {
+        if (error.message.toLowerCase().includes('metal') ||
+            error.message.toLowerCase().includes('gpu') ||
+            (error.details?.stderr && error.details.stderr.includes('Metal'))) {
           attemptCpuFallback = true;
           if (onLog) {
             onLog('warning', `Metal 执行失败: ${error.message}，准备切换到 CPU 模式`);

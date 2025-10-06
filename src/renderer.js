@@ -69,6 +69,13 @@ let proxy = "";
 let downloadedItemList = [];
 let ytDlpIsPresent = false;
 
+// Post-download actions state
+let postActionState = {
+    selected: 'none', // 'none' | 'extract' | 'transcribe'
+    transcribeLanguage: 'auto',
+    keepVideo: false
+};
+
 if (localStorage.getItem("configPath")) {
 	configArg = "--config-location";
 	configTxt = `"${localStorage.getItem("configPath")}"`;
@@ -334,6 +341,35 @@ document.addEventListener("keydown", (event) => {
 
 getId("pasteUrl").addEventListener("click", () => {
 	pasteUrl();
+});
+
+// Post-download actions event listeners
+document.querySelectorAll('input[name="postAction"]').forEach(radio => {
+	radio.addEventListener("change", (e) => {
+		postActionState.selected = e.target.value;
+
+		// Show/hide transcribe options
+		const transcribeOptions = getId("transcribeOptions");
+		if (e.target.value === 'transcribe') {
+			transcribeOptions.style.display = 'block';
+			// Auto-check keep video for transcription
+			getId("keepVideoAfterTranscribe").checked = true;
+			postActionState.keepVideo = true;
+		} else {
+			transcribeOptions.style.display = 'none';
+		}
+
+		// Update download button text
+		updateDownloadButtonText();
+	});
+});
+
+getId("transcribeLanguage").addEventListener("change", (e) => {
+	postActionState.transcribeLanguage = e.target.value;
+});
+
+getId("keepVideoAfterTranscribe").addEventListener("change", (e) => {
+	postActionState.keepVideo = e.target.checked;
 });
 
 // Getting video info
@@ -1348,7 +1384,8 @@ function download(
 						downloadDir,
 						filename + `.${extractExt}`,
 						randomId + "prog",
-						thumb1 || thumbnail
+						thumb1 || thumbnail,
+						{ type: 'extract', originalFilename: filename, url: url }
 					);
 				}
 				// If download is done
@@ -1358,7 +1395,8 @@ function download(
 						downloadDir,
 						filename + `.${ext}`,
 						randomId + "prog",
-						thumb1 || thumbnail
+						thumb1 || thumbnail,
+						{ type: 'download', filename: filename, ext: ext, url: url }
 					);
 				}
 			}
@@ -1422,7 +1460,7 @@ function hideClearBtn() {
 }
 // After saving video
 
-function afterSave(location, filename, progressId, thumbnail) {
+function afterSave(location, filename, progressId, thumbnail, downloadInfo = null) {
 	const notify = new Notification("ytDownloader", {
 		body: filename,
 		icon: thumbnail,
@@ -1447,7 +1485,76 @@ function afterSave(location, filename, progressId, thumbnail) {
 	getId(progressId).innerHTML = "";
 	getId(progressId).appendChild(fileSavedElement);
 
+	// Handle post-download actions
+	handlePostDownloadAction(location, filename, progressId, downloadInfo);
+
 	window.scrollTo(0, document.body.scrollHeight);
+}
+
+// Handle post-download actions (extract audio or transcribe)
+function handlePostDownloadAction(location, filename, progressId, downloadInfo) {
+	switch (postActionState.selected) {
+		case 'extract':
+			performAudioExtraction(location, filename, progressId);
+			break;
+		case 'transcribe':
+			performTranscription(location, filename, progressId, downloadInfo);
+			break;
+		case 'none':
+		default:
+			// No action needed
+			break;
+	}
+}
+
+// Perform audio extraction
+function performAudioExtraction(location, filename, progressId) {
+	const progressElement = getId(progressId);
+	if (!progressElement) return;
+
+	progressElement.innerHTML = `<div style="color: var(--blueBtn);">${i18n.__("Extracting audio")}...</div>`;
+
+	// Get the selected extraction format and quality
+	const extractFormat = getId("extractSelection")?.value || "mp3";
+	const extractQuality = getId("extractQualitySelect")?.value || "5";
+
+	// Send extraction request to main process
+	ipcRenderer.invoke('extract-audio', {
+		inputFile: path.join(location, filename),
+		outputDir: location,
+		format: extractFormat,
+		quality: extractQuality
+	}).then(() => {
+		progressElement.innerHTML = `<div style="color: var(--greenBtn);">${i18n.__("Audio extracted successfully")}</div>`;
+	}).catch((error) => {
+		progressElement.innerHTML = `<div style="color: var(--redBtn);">${i18n.__("Extraction failed")}: ${error.message}</div>`;
+	});
+}
+
+// Perform transcription
+function performTranscription(location, filename, progressId, downloadInfo) {
+	const progressElement = getId(progressId);
+	if (!progressElement) return;
+
+	progressElement.innerHTML = `<div style="color: var(--blueBtn);">${i18n.__("Starting transcription")}...</div>`;
+
+	// Send transcription request to main process
+	ipcRenderer.invoke('transcribe-audio', {
+		filePath: path.join(location, filename),
+		progressId,
+		options: {
+			language: postActionState.transcribeLanguage,
+			keepVideo: postActionState.keepVideo
+		}
+	}).then((result) => {
+		if (result.success) {
+			progressElement.innerHTML = `<div style="color: var(--greenBtn);">${i18n.__("Transcription completed")}</div>`;
+		} else {
+			progressElement.innerHTML = `<div style="color: var(--redBtn);">${i18n.__("Transcription failed")}: ${result.error?.message || 'Unknown error'}</div>`;
+		}
+	}).catch((error) => {
+		progressElement.innerHTML = `<div style="color: var(--redBtn);">${i18n.__("Transcription failed")}: ${error.message}</div>`;
+	});
 }
 
 // async function getSystemProxy(url) {
@@ -1509,6 +1616,27 @@ function showPopup(text) {
  */
 function getLocalStorageItem(item) {
 	return localStorage.getItem(item) || "";
+}
+
+function updateDownloadButtonText() {
+	const videoBtn = getId("videoDownload");
+	const audioBtn = getId("audioDownload");
+
+	if (!videoBtn || !audioBtn) return;
+
+	switch (postActionState.selected) {
+		case 'extract':
+			videoBtn.textContent = i18n.__("Download and extract audio");
+			audioBtn.textContent = i18n.__("Download and extract audio");
+			break;
+		case 'transcribe':
+			videoBtn.textContent = i18n.__("Download and transcribe text");
+			audioBtn.textContent = i18n.__("Download and transcribe text");
+			break;
+		default:
+			videoBtn.textContent = i18n.__("Download");
+			audioBtn.textContent = i18n.__("Download");
+	}
 }
 
 function getId(id) {
@@ -1689,4 +1817,414 @@ function hidePasteBtn() {
 
 function setLocalStorageYtDlp(ytDlpPath) {
 	localStorage.setItem("ytdlp", ytDlpPath);
+}
+
+// ============================================================================
+// 进度展示相关功能
+// ============================================================================
+
+/**
+ * 创建进度条HTML
+ * @param {string} id - 进度条ID
+ * @param {string} stage - 当前阶段
+ * @param {number} percent - 进度百分比
+ * @returns {string} 进度条HTML
+ */
+function createProgressBar(id, stage, percent = 0) {
+	return `
+		<div class="progress-container" id="progress-${id}">
+			<div class="progress-stage">${stage}</div>
+			<div class="progress-bar-wrapper">
+				<div class="progress-bar">
+					<div class="progress-fill" style="width: ${percent}%"></div>
+				</div>
+				<div class="progress-text">${percent}%</div>
+			</div>
+			<div class="progress-speed"></div>
+			<div class="progress-eta"></div>
+		</div>
+	`;
+}
+
+/**
+ * 更新进度条
+ * @param {string} id - 进度条ID
+ * @param {Object} progress - 进度信息
+ */
+function updateProgressBar(id, progress) {
+	const container = getId(`progress-${id}`);
+	if (!container) return;
+
+	const stageElement = container.querySelector('.progress-stage');
+	const fillElement = container.querySelector('.progress-fill');
+	const textElement = container.querySelector('.progress-text');
+	const speedElement = container.querySelector('.progress-speed');
+	const etaElement = container.querySelector('.progress-eta');
+
+	if (stageElement && progress.stage) {
+		stageElement.textContent = getStageDisplayName(progress.stage);
+	}
+
+	if (fillElement && textElement) {
+		const percent = Math.round(progress.percent || 0);
+		fillElement.style.width = `${percent}%`;
+		textElement.textContent = `${percent}%`;
+	}
+
+	if (speedElement && progress.speed) {
+		speedElement.textContent = `速度: ${formatSpeed(progress.speed)}`;
+	}
+
+	if (etaElement && progress.eta) {
+		etaElement.textContent = `剩余: ${formatTime(progress.eta)}`;
+	}
+
+	if (progress.message) {
+		// 添加详细消息显示
+		let messageElement = container.querySelector('.progress-message');
+		if (!messageElement) {
+			messageElement = document.createElement('div');
+			messageElement.className = 'progress-message';
+			container.appendChild(messageElement);
+		}
+		messageElement.textContent = progress.message;
+	}
+}
+
+/**
+ * 获取阶段显示名称
+ * @param {string} stage - 阶段代码
+ * @returns {string} 显示名称
+ */
+function getStageDisplayName(stage) {
+	const stageNames = {
+		'PENDING': '等待中',
+		'DOWNLOADING': '下载中',
+		'EXTRACTING': '提取音频中',
+		'TRANSCRIBING': '转写中',
+		'PACKING': '整理文件中',
+		'COMPLETED': '完成',
+		'FAILED': '失败',
+		'CANCELLED': '已取消'
+	};
+	return stageNames[stage] || stage;
+}
+
+/**
+ * 格式化速度显示
+ * @param {number} speed - 速度值
+ * @returns {string} 格式化后的速度
+ */
+function formatSpeed(speed) {
+	if (speed < 1024) {
+		return `${speed.toFixed(1)} B/s`;
+	} else if (speed < 1024 * 1024) {
+		return `${(speed / 1024).toFixed(1)} KB/s`;
+	} else {
+		return `${(speed / (1024 * 1024)).toFixed(1)} MB/s`;
+	}
+}
+
+/**
+ * 格式化时间显示
+ * @param {number} seconds - 秒数
+ * @returns {string} 格式化后的时间
+ */
+function formatTime(seconds) {
+	if (seconds < 60) {
+		return `${Math.round(seconds)}秒`;
+	} else if (seconds < 3600) {
+		const minutes = Math.floor(seconds / 60);
+		const remainingSeconds = Math.round(seconds % 60);
+		return `${minutes}分${remainingSeconds}秒`;
+	} else {
+		const hours = Math.floor(seconds / 3600);
+		const minutes = Math.floor((seconds % 3600) / 60);
+		return `${hours}小时${minutes}分`;
+	}
+}
+
+/**
+ * 完成进度显示
+ * @param {string} id - 进度条ID
+ * @param {string} message - 完成消息
+ * @param {boolean} success - 是否成功
+ */
+function completeProgressBar(id, message, success = true) {
+	const container = getId(`progress-${id}`);
+	if (!container) return;
+
+	const progressElement = container.querySelector('.progress-bar-wrapper');
+	const stageElement = container.querySelector('.progress-stage');
+
+	if (progressElement) {
+		progressElement.style.display = 'none';
+	}
+
+	if (stageElement) {
+		stageElement.textContent = message;
+		stageElement.style.color = success ? 'var(--greenBtn)' : 'var(--redBtn)';
+	}
+
+	// 移除速度和ETA显示
+	const speedElement = container.querySelector('.progress-speed');
+	const etaElement = container.querySelector('.progress-eta');
+	if (speedElement) speedElement.style.display = 'none';
+	if (etaElement) etaElement.style.display = 'none';
+}
+
+/**
+ * 移除进度条
+ * @param {string} id - 进度条ID
+ */
+function removeProgressBar(id) {
+	const container = getId(`progress-${id}`);
+	if (container) {
+		container.remove();
+	}
+}
+
+// ============================================================================
+// IPC 事件监听器
+// ============================================================================
+
+// 监听作业进度事件
+ipcRenderer.on('job:progress', (event, data) => {
+	console.log('收到作业进度:', data);
+
+	const { jobId, stage, percent, message, speed, eta } = data;
+
+	// 查找对应的下载项
+	const downloadItems = document.querySelectorAll('#list .item');
+	let targetItem = null;
+	let progressId = null;
+
+	for (const item of downloadItems) {
+		// 优先匹配 jobId
+		if (item.dataset.jobId === jobId) {
+			targetItem = item;
+			progressId = `job-${jobId}`;
+			break;
+		}
+		// 兜底：如果没有 jobId，尝试匹配 transcribeJobId（兼容转写任务）
+		else if (item.dataset.transcribeJobId === jobId) {
+			targetItem = item;
+			progressId = `transcribe-${jobId}`;
+			break;
+		}
+	}
+
+	if (!targetItem) return;
+
+	// 查找或创建进度条容器
+	let progressContainer = targetItem.querySelector('.download-progress');
+	if (!progressContainer) {
+		progressContainer = document.createElement('div');
+		progressContainer.className = 'download-progress';
+		targetItem.appendChild(progressContainer);
+	}
+
+	// 更新或创建进度条
+	let progressBar = progressContainer.querySelector('.progress-container');
+	if (!progressBar) {
+		progressContainer.innerHTML = createProgressBar(progressId, getStageDisplayName(stage), percent || 0);
+	} else {
+		updateProgressBar(progressId, {
+			stage,
+			percent: percent || 0,
+			message,
+			speed,
+			eta
+		});
+	}
+});
+
+// 监听作业状态变更事件
+ipcRenderer.on('job:status', (event, data) => {
+	console.log('收到作业状态变更:', data);
+
+	const { jobId, status, stage } = data;
+	const progressId = `job-${jobId}`;
+
+	if (status === 'COMPLETED') {
+		completeProgressBar(progressId, '✅ 下载完成', true);
+	} else if (status === 'FAILED') {
+		completeProgressBar(progressId, '❌ 下载失败', false);
+	} else if (status === 'CANCELLED') {
+		completeProgressBar(progressId, '⏹️ 已取消', false);
+	}
+});
+
+// 监听作业结果事件
+ipcRenderer.on('job:result', (event, data) => {
+	console.log('收到作业结果:', data);
+
+	const { jobId, status, stage, result } = data;
+	const progressId = `job-${jobId}`;
+
+	if (status === 'completed') {
+		let message = '✅ 完成';
+
+		if (stage === 'TRANSCRIBING') {
+			message = result.transcriptPath ?
+				'✅ 转写完成' :
+				'✅ 下载和转写完成';
+		} else if (stage === 'EXTRACTING') {
+			message = '✅ 音频提取完成';
+		} else {
+			message = '✅ 下载完成';
+		}
+
+		completeProgressBar(progressId, message, true);
+
+		// 如果有转写结果，添加复制文本按钮
+		if (result.transcriptPath) {
+			addTranscriptResult(jobId, result.transcriptPath);
+		}
+	} else {
+		completeProgressBar(progressId, `❌ ${stage}失败`, false);
+	}
+});
+
+// 监听转写进度事件（旧版本兼容）
+ipcRenderer.on('transcribe:progress', (event, data) => {
+	console.log('收到转写进度:', data);
+
+	const { jobId, progress } = data;
+	const progressId = `transcribe-${jobId}`;
+
+	// 查找对应的下载项
+	const downloadItems = document.querySelectorAll('#list .item');
+	let targetItem = null;
+
+	for (const item of downloadItems) {
+		if (item.dataset.transcribeJobId === jobId) {
+			targetItem = item;
+			break;
+		}
+	}
+
+	if (!targetItem) return;
+
+	// 查找或创建进度条容器
+	let progressContainer = targetItem.querySelector('.download-progress');
+	if (!progressContainer) {
+		progressContainer = document.createElement('div');
+		progressContainer.className = 'download-progress';
+		targetItem.appendChild(progressContainer);
+	}
+
+	// 更新或创建进度条
+	let progressBar = progressContainer.querySelector('.progress-container');
+	if (!progressBar) {
+		progressContainer.innerHTML = createProgressBar(progressId, '转写中', progress.percent || 0);
+	} else {
+		updateProgressBar(progressId, {
+			stage: 'TRANSCRIBING',
+			percent: progress.percent || 0,
+			message: progress.message
+		});
+	}
+});
+
+// 监听转写开始事件
+ipcRenderer.on('transcribe:start', (event, data) => {
+	console.log('转写开始:', data);
+
+	const { jobId, filePath, progressId } = data;
+
+	let targetItem = null;
+
+	// 优先根据 progressId 在 DOM 中快速定位
+	if (progressId) {
+		const progressElement = document.getElementById(progressId);
+		if (progressElement) {
+			targetItem = progressElement.closest('.item');
+		}
+	}
+
+	// 兼容旧逻辑：若 progressId 未找到节点，则回退到文件路径匹配
+	if (!targetItem && filePath) {
+		const downloadItems = document.querySelectorAll('#list .item');
+		for (const item of downloadItems) {
+			const locationElement = item.querySelector('.location');
+			const titleElement = item.querySelector('.title');
+			const itemFilePath = locationElement?.textContent || '';
+			const itemFileName = titleElement?.textContent || '';
+
+			if (itemFilePath === filePath ||
+				itemFilePath.includes(path.basename(filePath)) ||
+				itemFileName === path.basename(filePath)) {
+				targetItem = item;
+				break;
+			}
+		}
+	}
+
+	if (!targetItem) {
+		console.warn('未能找到与转写作业关联的下载项', { jobId, filePath, progressId });
+		return;
+	}
+
+	targetItem.dataset.jobId = jobId;
+	targetItem.dataset.transcribeJobId = jobId;
+	console.log(`已绑定 jobId ${jobId} 到下载项:`, targetItem);
+});
+
+/**
+ * 添加转写结果显示
+ * @param {string} jobId - 作业ID
+ * @param {string} transcriptPath - 转写文件路径
+ */
+function addTranscriptResult(jobId, transcriptPath) {
+	const downloadItems = document.querySelectorAll('#list .item');
+	let targetItem = null;
+
+	for (const item of downloadItems) {
+		if (item.dataset.jobId === jobId) {
+			targetItem = item;
+			break;
+		}
+	}
+
+	if (!targetItem) return;
+
+	// 创建转写结果显示区域
+	let transcriptContainer = targetItem.querySelector('.transcript-result');
+	if (!transcriptContainer) {
+		transcriptContainer = document.createElement('div');
+		transcriptContainer.className = 'transcript-result';
+		targetItem.appendChild(transcriptContainer);
+	}
+
+	transcriptContainer.innerHTML = `
+		<div class="transcript-header">
+			<span>📝 转写结果</span>
+			<button class="copy-transcript-btn" data-path="${transcriptPath}">复制文本</button>
+			<button class="open-transcript-btn" data-path="${transcriptPath}">打开文件</button>
+		</div>
+		<div class="transcript-preview">点击复制文本按钮查看内容</div>
+	`;
+
+	// 绑定事件
+	const copyBtn = transcriptContainer.querySelector('.copy-transcript-btn');
+	const openBtn = transcriptContainer.querySelector('.open-transcript-btn');
+	const preview = transcriptContainer.querySelector('.transcript-preview');
+
+	copyBtn.addEventListener('click', async () => {
+		try {
+			const result = await ipcRenderer.invoke('read-file', transcriptPath);
+			await navigator.clipboard.writeText(result);
+			preview.textContent = '✅ 文本已复制到剪贴板';
+			setTimeout(() => {
+				preview.textContent = result.substring(0, 200) + (result.length > 200 ? '...' : '');
+			}, 2000);
+		} catch (error) {
+			preview.textContent = '❌ 复制失败: ' + error.message;
+		}
+	});
+
+	openBtn.addEventListener('click', () => {
+		ipcRenderer.invoke('show-item', transcriptPath);
+	});
 }

@@ -189,6 +189,45 @@
                 <input id="subChecked" class="cb" type="checkbox">
             </div>
 
+            <!-- Post-download actions -->
+            <div class="advancedItem">
+                <h3 id="postActionsHeader" style="margin-bottom: 10px;">Post-download actions</h3>
+                <div class="postActionOptions">
+                    <label style="display: block; margin-bottom: 5px;">
+                        <input type="radio" name="postAction" value="none" checked style="margin-right: 8px;">
+                        <span id="noActionText">None</span>
+                    </label>
+                    <label style="display: block; margin-bottom: 5px;">
+                        <input type="radio" name="postAction" value="extract" style="margin-right: 8px;">
+                        <span id="extractAudioText">Extract audio</span>
+                    </label>
+                    <label style="display: block; margin-bottom: 5px;">
+                        <input type="radio" name="postAction" value="transcribe" style="margin-right: 8px;">
+                        <span id="transcribeText">Transcribe text</span>
+                    </label>
+                </div>
+
+                <!-- Transcription options (only shown when transcription is selected) -->
+                <div id="transcribeOptions" style="display: none; margin-top: 15px; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                    <div class="transcribeOptionItem" style="margin-bottom: 10px;">
+                        <label id="languageSelectLabel" style="display: block; margin-bottom: 5px;">Transcription language</label>
+                        <select id="transcribeLanguage" class="select">
+                            <option value="auto">Auto-detect</option>
+                            <option value="zh">Chinese</option>
+                            <option value="en">English</option>
+                            <option value="ja">Japanese</option>
+                            <option value="ko">Korean</option>
+                        </select>
+                    </div>
+                    <div class="transcribeOptionItem">
+                        <label style="display: block;">
+                            <input type="checkbox" id="keepVideoAfterTranscribe" style="margin-right: 8px;">
+                            <span id="keepVideoText">Keep video file</span>
+                        </label>
+                    </div>
+                </div>
+            </div>
+
         </div>
 
         <!-- Extraction options start -->

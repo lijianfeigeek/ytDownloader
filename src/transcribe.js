@@ -893,6 +893,26 @@ function initializeEventListeners() {
     });
 
     // IPC 事件监听
+    ipcRenderer.on('job:created', (event, data) => {
+        console.log('[Transcribe] 收到作业创建事件:', data);
+        addLog(`[${data.jobId}] 作业已创建`);
+
+        // 将新作业添加到前端作业列表
+        jobs.set(data.jobId, {
+            id: data.jobId,
+            url: data.job.url,
+            status: data.job.status,
+            progress: {
+                current: 0,
+                message: '等待中'
+            },
+            createdAt: data.job.createdAt,
+            updatedAt: data.job.updatedAt
+        });
+
+        updateJobList();
+    });
+
     ipcRenderer.on('job:log', (event, data) => {
         addLog(`[${data.jobId}] ${data.type}: ${data.data}`);
     });

@@ -129,6 +129,26 @@
 	"Cancel": "Cancel",
 	"Error! Click for details": "Error! Click for details",
 	"You need to download yt-dlp from homebrew first": "You need to download yt-dlp from homebrew first",
-	"Open Homebrew":"Open Homebrew"
+	"Open Homebrew":"Open Homebrew",
+	"Post-download actions": "Post-download actions",
+	"Execute after download": "Execute after download",
+	"None": "None",
+	"Extract audio": "Extract audio",
+	"Transcribe text": "Transcribe text",
+	"Transcription language": "Transcription language",
+	"Auto-detect": "Auto-detect",
+	"Chinese": "Chinese",
+	"English": "English",
+	"Japanese": "Japanese",
+	"Korean": "Korean",
+	"Keep video file": "Keep video file",
+	"Download and extract audio": "Download and extract audio",
+	"Download and transcribe text": "Download and transcribe text",
+	"Extracting audio": "Extracting audio",
+	"Audio extracted successfully": "Audio extracted successfully",
+	"Extraction failed": "Extraction failed",
+	"Starting transcription": "Starting transcription",
+	"Transcription completed": "Transcription completed",
+	"Transcription failed": "Transcription failed"
 
 }

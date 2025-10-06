@@ -568,6 +568,14 @@ function setupJobEventForwarding() {
 		}
 
 		switch (event.type) {
+			case 'job:created':
+				console.log(`[JobQueue] 发送作业创建事件: ${event.jobId}`);
+				win.webContents.send('job:created', {
+					jobId: event.jobId,
+					job: event.job,
+					timestamp: event.timestamp
+				});
+				break;
 			case 'job:stage-changed':
 				console.log(`[JobQueue] 发送状态变更事件: ${event.jobId} ${event.oldStatus} → ${event.newStatus}`);
 				win.webContents.send('job:stage-changed', {
@@ -641,6 +649,19 @@ function saveJobMetadata(job, stage, result = null) {
  * @param {Object} progress - 进度信息
  */
 function emitJobProgress(jobId, stage, progress) {
+	// 防御性编程：自动包装基本类型参数为对象
+	if (typeof progress !== 'object' || progress === null) {
+		// 如果传递的是数字、字符串等基本类型，自动包装为进度对象
+		const percent = typeof progress === 'number' ? progress : 0;
+		progress = {
+			percent: percent,
+			message: typeof progress === 'string' ? progress : '',
+			speed: 0,
+			eta: 0
+		};
+		console.warn(`[emitJobProgress] 自动包装基本类型参数为对象: ${progress}`);
+	}
+
 	const payload = {
 		jobId,
 		stage,
@@ -771,98 +792,172 @@ async function executeJobPipeline(job) {
 		});
 		emitJobProgress(job.id, 'DOWNLOADING', { percent: 100, message: '视频下载完成' });
 
-		// 阶段2: 提取音频
-		await logger.stageStart('EXTRACTING', {
-			videoPath,
-			outputDir: job.outputDir,
-			options: {
-				bitrate: job.options?.audioBitrate || '192k',
-				generateWav: true
-			}
-		});
+		// 根据postAction决定后续执行阶段
+		await logger.info(`开始后处理操作: ${job.postAction}`);
 
-		jobQueue.advanceStage(job.id, JobStatus.EXTRACTING);
-		emitJobProgress(job.id, 'EXTRACTING', { percent: 0, message: '开始提取音频' });
-		saveJobMetadata(job, 'EXTRACTING');
+		let audioResult = null;
+		let transcribeResult = null;
 
-		const audioResult = await extractAudio(videoPath, {
-			outputDir: job.outputDir,
-			bitrate: job.options?.audioBitrate || '192k',
-			generateWav: true, // 为 Whisper 生成 WAV 文件
-			codec: 'libmp3lame',
-			onLog: (type, data) => {
-				emitJobLog(job.id, type, data);
-				logger.debug('Audio extraction log', { type, data });
-			},
-			ffmpegPath: job.options?.ffmpegPath,
-			spawnFn: job.options?.spawnFn
-		});
+		switch (job.postAction) {
+			case 'none':
+				await logger.info('跳过音频提取和转写，直接进行打包');
+				break;
 
-		finalResult.outputs.audio = audioResult;
+			case 'extract':
+				// 阶段2: 提取音频
+				await logger.stageStart('EXTRACTING', {
+					videoPath,
+					outputDir: job.outputDir,
+					options: {
+						bitrate: job.options?.audioBitrate || '192k',
+						generateWav: false // extract模式不需要WAV
+					}
+				});
 
-		// 保存音频提取结果
-		saveJobMetadata(job, 'EXTRACTING', {
-			mp3Path: audioResult.mp3Path,
-			wavPath: audioResult.wavPath
-		});
+				jobQueue.advanceStage(job.id, JobStatus.EXTRACTING);
+				emitJobProgress(job.id, 'EXTRACTING', { percent: 0, message: '开始提取音频' });
+				saveJobMetadata(job, 'EXTRACTING');
 
-		await logger.stageComplete('EXTRACTING', {
-			mp3Path: audioResult.mp3Path,
-			wavPath: audioResult.wavPath,
-			mp3Size: audioResult.mp3Path && fs.existsSync(audioResult.mp3Path) ? fs.statSync(audioResult.mp3Path).size : 0,
-			wavSize: audioResult.wavPath && fs.existsSync(audioResult.wavPath) ? fs.statSync(audioResult.wavPath).size : 0
-		});
+				audioResult = await extractAudio(videoPath, {
+					outputDir: job.outputDir,
+					bitrate: job.options?.audioBitrate || '192k',
+					generateWav: false, // extract模式不需要WAV
+					codec: 'libmp3lame',
+					onLog: (type, data) => {
+						emitJobLog(job.id, type, data);
+						logger.debug('Audio extraction log', { type, data });
+					},
+					ffmpegPath: job.options?.ffmpegPath,
+					spawnFn: job.options?.spawnFn
+				});
 
-		emitJobProgress(job.id, 'EXTRACTING', { percent: 100, message: '音频提取完成' });
+				finalResult.outputs.audio = audioResult;
 
-		// 阶段3: 转写语音
-		await logger.stageStart('TRANSCRIBING', {
-			audioFile: audioResult.wavPath || audioResult.mp3Path,
-			language: job.options?.language || 'auto',
-			translate: job.options?.translate || false,
-			useMetal: job.options?.useMetal
-		});
+				// 保存音频提取结果
+				saveJobMetadata(job, 'EXTRACTING', {
+					mp3Path: audioResult.mp3Path,
+					wavPath: audioResult.wavPath
+				});
 
-		jobQueue.advanceStage(job.id, JobStatus.TRANSCRIBING);
-		emitJobProgress(job.id, 'TRANSCRIBING', { percent: 0, message: '开始语音转写' });
-		saveJobMetadata(job, 'TRANSCRIBING');
+				await logger.stageComplete('EXTRACTING', {
+					mp3Path: audioResult.mp3Path,
+					wavPath: audioResult.wavPath,
+					mp3Size: audioResult.mp3Path && fs.existsSync(audioResult.mp3Path) ? fs.statSync(audioResult.mp3Path).size : 0,
+					wavSize: audioResult.wavPath && fs.existsSync(audioResult.wavPath) ? fs.statSync(audioResult.wavPath).size : 0
+				});
 
-		const audioForTranscribe = audioResult.wavPath || audioResult.mp3Path;
-		const transcribeResult = await transcribe(job, audioForTranscribe, {
-			language: job.options?.language || 'auto',
-			translate: job.options?.translate || false,
-			threads: job.options?.threads,
-			useMetal: job.options?.useMetal,
-			onProgress: (progress) => {
-				emitJobProgress(job.id, 'TRANSCRIBING', progress);
-				logger.progress('TRANSCRIBING', progress.percent || 0, progress.message || '转写中', { progress });
-			},
-			onLog: (type, data) => {
-				emitJobLog(job.id, type, data);
-				logger.debug('Transcription log', { type, data });
-			},
-			whisperPath: job.options?.whisperPath,
-			model: job.options?.model,
-			spawnFn: job.options?.spawnFn
-		});
+				emitJobProgress(job.id, 'EXTRACTING', { percent: 100, message: '音频提取完成' });
+				break;
 
-		finalResult.outputs.transcript = transcribeResult.transcriptPath;
+			case 'transcribe':
+				// 阶段2: 提取音频
+				await logger.stageStart('EXTRACTING', {
+					videoPath,
+					outputDir: job.outputDir,
+					options: {
+						bitrate: job.options?.audioBitrate || '192k',
+						generateWav: true // 为 Whisper 生成 WAV 文件
+					}
+				});
 
-		// 保存转写结果
-		saveJobMetadata(job, 'TRANSCRIBING', {
-			transcriptPath: transcribeResult.transcriptPath,
-			duration: transcribeResult.duration,
-			usedMetal: transcribeResult.usedMetal
-		});
+				jobQueue.advanceStage(job.id, JobStatus.EXTRACTING);
+				emitJobProgress(job.id, 'EXTRACTING', { percent: 0, message: '开始提取音频' });
+				saveJobMetadata(job, 'EXTRACTING');
 
-		await logger.stageComplete('TRANSCRIBING', {
-			transcriptPath: transcribeResult.transcriptPath,
-			duration: transcribeResult.duration,
-			usedMetal: transcribeResult.usedMetal,
-			transcriptSize: transcribeResult.transcriptPath && fs.existsSync(transcribeResult.transcriptPath) ? fs.statSync(transcribeResult.transcriptPath).size : 0
-		});
+				audioResult = await extractAudio(videoPath, {
+					outputDir: job.outputDir,
+					bitrate: job.options?.audioBitrate || '192k',
+					generateWav: true, // 为 Whisper 生成 WAV 文件
+					codec: 'libmp3lame',
+					onLog: (type, data) => {
+						emitJobLog(job.id, type, data);
+						logger.debug('Audio extraction log', { type, data });
+					},
+					ffmpegPath: job.options?.ffmpegPath,
+					spawnFn: job.options?.spawnFn
+				});
 
-		emitJobProgress(job.id, 'TRANSCRIBING', { percent: 100, message: '语音转写完成' });
+				finalResult.outputs.audio = audioResult;
+
+				// 保存音频提取结果
+				saveJobMetadata(job, 'EXTRACTING', {
+					mp3Path: audioResult.mp3Path,
+					wavPath: audioResult.wavPath
+				});
+
+				await logger.stageComplete('EXTRACTING', {
+					mp3Path: audioResult.mp3Path,
+					wavPath: audioResult.wavPath,
+					mp3Size: audioResult.mp3Path && fs.existsSync(audioResult.mp3Path) ? fs.statSync(audioResult.mp3Path).size : 0,
+					wavSize: audioResult.wavPath && fs.existsSync(audioResult.wavPath) ? fs.statSync(audioResult.wavPath).size : 0
+				});
+
+				emitJobProgress(job.id, 'EXTRACTING', { percent: 100, message: '音频提取完成' });
+
+				// 阶段3: 转写语音
+				await logger.stageStart('TRANSCRIBING', {
+					audioFile: audioResult.wavPath || audioResult.mp3Path,
+					language: job.options?.language || 'auto',
+					translate: job.options?.translate || false,
+					useMetal: job.options?.useMetal
+				});
+
+				jobQueue.advanceStage(job.id, JobStatus.TRANSCRIBING);
+				emitJobProgress(job.id, 'TRANSCRIBING', { percent: 0, message: '开始语音转写' });
+				saveJobMetadata(job, 'TRANSCRIBING');
+
+				const audioForTranscribe = audioResult.wavPath || audioResult.mp3Path;
+				transcribeResult = await transcribe(job, audioForTranscribe, {
+					language: job.options?.language || 'auto',
+					translate: job.options?.translate || false,
+					threads: job.options?.threads,
+					useMetal: job.options?.useMetal,
+					onProgress: (progress) => {
+						emitJobProgress(job.id, 'TRANSCRIBING', progress);
+						logger.progress('TRANSCRIBING', progress.percent || 0, progress.message || '转写中', { progress });
+					},
+					onLog: (type, data) => {
+						emitJobLog(job.id, type, data);
+						logger.debug('Transcription log', { type, data });
+					},
+					whisperPath: job.options?.whisperPath,
+					model: job.options?.model,
+					spawnFn: job.options?.spawnFn
+				});
+
+				finalResult.outputs.transcript = transcribeResult.transcriptPath;
+
+				// 保存转写结果
+				saveJobMetadata(job, 'TRANSCRIBING', {
+					transcriptPath: transcribeResult.transcriptPath,
+					duration: transcribeResult.duration,
+					usedMetal: transcribeResult.usedMetal
+				});
+
+				await logger.stageComplete('TRANSCRIBING', {
+					transcriptPath: transcribeResult.transcriptPath,
+					duration: transcribeResult.duration,
+					usedMetal: transcribeResult.usedMetal,
+					transcriptSize: transcribeResult.transcriptPath && fs.existsSync(transcribeResult.transcriptPath) ? fs.statSync(transcribeResult.transcriptPath).size : 0
+				});
+
+				emitJobProgress(job.id, 'TRANSCRIBING', { percent: 100, message: '语音转写完成' });
+
+				// 处理视频文件保留选项（仅对transcribe模式有效）
+				if (!job.options?.keepVideo && audioResult && videoPath) {
+					try {
+						await fs.promises.unlink(videoPath);
+						await logger.info('已删除原始视频文件（用户选择不保留）');
+					} catch (error) {
+						await logger.warn('删除原始视频文件失败:', error);
+					}
+				}
+				break;
+
+			default:
+				await logger.warn(`未知的postAction类型: ${job.postAction}，跳过后处理`);
+				break;
+		}
 
 		// 阶段4: 整理和打包
 		await logger.stageStart('PACKING', {
@@ -986,6 +1081,7 @@ ipcMain.handle('job:create', async (event, jobData) => {
 			outputDir: jobOutputDir,
 			options: jobData.options || {},
 			metadata: jobData.metadata || {},
+			postAction: jobData.postAction || 'none', // 支持下载后操作：'none'|'extract'|'transcribe'
 			stage: 'PENDING',
 			createdAt: new Date().toISOString()
 		};
@@ -1608,6 +1704,155 @@ ipcMain.handle('app:runSetupOffline', async () => {
 });
 
 /**
+ * 转写音频文件（前端专用）
+ */
+ipcMain.handle('transcribe-audio', async (event, { filePath, options = {}, progressId = null }) => {
+	let job = null;
+
+	try {
+		// 验证输入参数
+		if (!filePath || !fs.existsSync(filePath)) {
+			throw new Error('音频文件不存在或路径无效');
+		}
+
+		// 创建标准的作业对象并添加到队列
+		job = {
+			id: generateJobId(),
+			url: `file://${filePath}`,
+			outputDir: path.dirname(filePath),
+			options: {
+				...options,
+				language: options.language || 'auto',
+				translate: options.translate || false,
+				useMetal: options.useMetal !== false, // 默认启用Metal
+				whisperPath: options.whisperPath,
+				model: options.model,
+				spawnFn: options.spawnFn
+			},
+			postAction: 'transcribe',
+			metadata: {
+				filePath: filePath,
+				type: 'audio-transcription'
+			}
+		};
+
+		// 添加到队列中，触发 job:created 事件
+		const createdJob = jobQueue.add(job);
+
+		// 广播转写开始事件，用于前端绑定 jobId 到下载条目
+		if (win && win.webContents && !win.isDestroyed()) {
+			win.webContents.send('transcribe:start', {
+				jobId: job.id,
+				filePath,
+				options: options,
+				outputDir: path.dirname(filePath),
+				progressId: progressId || null
+			});
+		}
+
+		// 创建日志记录器
+		const logger = createJobLogger(job.id);
+
+		// 推进作业状态到转写阶段
+		jobQueue.advanceStage(job.id, JobStatus.TRANSCRIBING, {
+			message: '开始音频转写'
+		});
+
+		await logger.info('开始音频转写', {
+			filePath,
+			options: options
+		});
+
+		// 执行转写
+		const transcribeResult = await transcribe(job, filePath, {
+			language: options.language || 'auto',
+			translate: options.translate || false,
+			threads: options.threads,
+			useMetal: options.useMetal !== false,
+			onProgress: (progress) => {
+				// 使用标准的作业进度系统
+				emitJobProgress(job.id, 'TRANSCRIBING', {
+					percent: progress.percent || 0,
+					message: progress.message || '转写中',
+					speed: progress.speed,
+					eta: progress.eta
+				});
+				logger.progress('TRANSCRIBING', progress.percent || 0, progress.message || '转写中', { progress });
+			},
+			onLog: (type, data) => {
+				if (win) {
+					win.webContents.send('job:log', {
+						jobId: job.id,
+						type: type,
+						data: data
+					});
+				}
+				logger.debug('Transcription log', { type, data });
+			},
+			whisperPath: options.whisperPath,
+			model: options.model,
+			spawnFn: options.spawnFn
+		});
+
+		// 推进作业到完成状态
+		jobQueue.advanceStage(job.id, JobStatus.COMPLETED, {
+			message: '转写完成',
+			progress: { current: 100, total: 100 }
+		});
+
+		// 发送完成事件
+		const result = {
+			success: true,
+			jobId: job.id,
+			transcriptPath: transcribeResult.transcriptPath,
+			duration: transcribeResult.duration,
+			usedMetal: transcribeResult.usedMetal,
+			message: '转写完成'
+		};
+
+		if (win) {
+			win.webContents.send('job:completed', result);
+		}
+
+		await logger.info('音频转写完成', {
+			result: result
+		});
+
+		return result;
+
+	} catch (error) {
+		console.error('音频转写失败:', error);
+
+		// 如果作业已创建，标记为失败
+		if (job) {
+			jobQueue.fail(job.id, {
+				code: 'TRANSCRIBE_ERROR',
+				message: error.message,
+				stage: 'TRANSCRIBING'
+			});
+		}
+
+		const errorResult = {
+			success: false,
+			jobId: job?.id,
+			error: {
+				code: 'TRANSCRIBE_ERROR',
+				message: error.message,
+				stage: 'TRANSCRIBING'
+			},
+			message: '转写失败'
+		};
+
+		// 发送错误事件到UI
+		if (win) {
+			win.webContents.send('job:failed', errorResult);
+		}
+
+		return errorResult;
+	}
+});
+
+/**
  * 检查离线依赖
  */
 ipcMain.handle('deps:check', async () => {
@@ -1830,6 +2075,44 @@ ipcMain.handle('job:exportDiagnostics', async (event, jobId, options = {}) => {
 app.on('ready', () => {
 	// 这里可以添加持久化作业的恢复逻辑
 	console.log('作业管理系统已初始化');
+});
+
+// ============================================================================
+// 进度展示相关 IPC 处理器
+// ============================================================================
+
+/**
+ * 读取文件内容
+ */
+ipcMain.handle('read-file', async (event, filePath) => {
+	try {
+		if (!filePath || !fs.existsSync(filePath)) {
+			throw new Error('文件不存在');
+		}
+
+		const content = fs.readFileSync(filePath, 'utf8');
+		return content;
+	} catch (error) {
+		console.error('读取文件失败:', error);
+		throw error;
+	}
+});
+
+/**
+ * 显示文件或文件夹
+ */
+ipcMain.handle('show-item', async (event, itemPath) => {
+	try {
+		if (!itemPath || !fs.existsSync(itemPath)) {
+			throw new Error('文件或文件夹不存在');
+		}
+
+		await shell.showItemInFolder(itemPath);
+		return { success: true };
+	} catch (error) {
+		console.error('显示文件失败:', error);
+		throw error;
+	}
 });
 
 // 退出时清理作业

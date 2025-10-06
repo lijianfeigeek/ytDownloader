@@ -77,10 +77,10 @@ const JobStatus = {
  * @private
  */
 const VALID_TRANSITIONS = {
-  [JobStatus.PENDING]: [JobStatus.DOWNLOADING, JobStatus.CANCELLED, JobStatus.FAILED],
+  [JobStatus.PENDING]: [JobStatus.DOWNLOADING, JobStatus.TRANSCRIBING, JobStatus.CANCELLED, JobStatus.FAILED],
   [JobStatus.DOWNLOADING]: [JobStatus.EXTRACTING, JobStatus.FAILED, JobStatus.CANCELLED],
   [JobStatus.EXTRACTING]: [JobStatus.TRANSCRIBING, JobStatus.FAILED, JobStatus.CANCELLED],
-  [JobStatus.TRANSCRIBING]: [JobStatus.PACKING, JobStatus.FAILED, JobStatus.CANCELLED],
+  [JobStatus.TRANSCRIBING]: [JobStatus.PACKING, JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED],
   [JobStatus.PACKING]: [JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED],
   [JobStatus.COMPLETED]: [], // 终态
   [JobStatus.FAILED]: [JobStatus.PENDING], // 允许失败后重试
