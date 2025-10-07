@@ -1810,6 +1810,105 @@ ipcMain.handle('transcribe-audio', async (event, { filePath, options = {}, progr
 			message: '转写完成'
 		};
 
+		const transcriptDir = path.dirname(filePath);
+		const inputBaseName = path.basename(filePath, path.extname(filePath));
+		const expectedTranscriptPath = path.join(transcriptDir, `${inputBaseName}.txt`);
+		const fallbackTranscriptPath = path.join(transcriptDir, `${path.basename(filePath)}.txt`);
+
+		const ensureTranscriptFile = async () => {
+			const candidateSet = new Set([
+				result.transcriptPath,
+				expectedTranscriptPath,
+				fallbackTranscriptPath
+			].filter(Boolean));
+
+			try {
+				const dirEntries = await fs.promises.readdir(transcriptDir);
+				dirEntries.forEach((entry) => {
+					if (!entry.toLowerCase().endsWith('.txt')) {
+						return;
+					}
+
+					const entryPath = path.join(transcriptDir, entry);
+					const entryName = entry.slice(0, -4);
+
+					if (
+						entryName === inputBaseName ||
+						entryName === path.basename(filePath)
+					) {
+						candidateSet.add(entryPath);
+					}
+				});
+			} catch (scanError) {
+				await logger.warn('扫描转写输出目录失败', {
+					directory: transcriptDir,
+					error: scanError.message
+				});
+			}
+
+			for (const candidate of candidateSet) {
+				if (!candidate) {
+					continue;
+				}
+
+				let candidateStats;
+				try {
+					candidateStats = await fs.promises.stat(candidate);
+				} catch (_) {
+					continue;
+				}
+
+				if (!candidateStats.isFile() || candidateStats.size === 0) {
+					continue;
+				}
+
+				if (candidate !== expectedTranscriptPath) {
+					try {
+						await fs.promises.rename(candidate, expectedTranscriptPath);
+					} catch (renameError) {
+						try {
+							await fs.promises.copyFile(candidate, expectedTranscriptPath);
+							if (candidate !== result.transcriptPath) {
+								await fs.promises.unlink(candidate).catch(() => {});
+							}
+						} catch (copyError) {
+							await logger.warn('整理转写输出文件失败', {
+								candidate,
+								expectedTranscriptPath,
+								renameError: renameError.message,
+								copyError: copyError.message
+							});
+							continue;
+						}
+					}
+
+					await logger.info('已整理转写文件路径', {
+						from: candidate,
+						to: expectedTranscriptPath
+					});
+				}
+
+				result.transcriptPath = expectedTranscriptPath;
+				return true;
+			}
+
+			try {
+				const expectedStats = await fs.promises.stat(expectedTranscriptPath);
+				if (expectedStats.isFile() && expectedStats.size > 0) {
+					result.transcriptPath = expectedTranscriptPath;
+					return true;
+				}
+			} catch (_) {}
+
+			await logger.warn('转写完成但未找到转写文件', {
+				expectedTranscriptPath,
+				checkedCandidates: Array.from(candidateSet)
+			});
+			return false;
+		};
+
+		await ensureTranscriptFile();
+
 		if (win) {
 			win.webContents.send('job:completed', result);
 		}
@@ -1817,6 +1916,17 @@ ipcMain.handle('transcribe-audio', async (event, { filePath, options = {}, progr
 		await logger.info('音频转写完成', {
 			result: result
 		});
+
+		if (!job.options?.keepVideo) {
+			try {
+				await fs.promises.unlink(filePath);
+				await logger.info('已删除原始媒体文件（用户选择不保留）', {
+					filePath
+				});
+			} catch (deleteError) {
+				await logger.warn('删除原始媒体文件失败:', deleteError);
+			}
+		}
 
 		return result;
 

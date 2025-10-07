@@ -76,6 +76,17 @@ let postActionState = {
     keepVideo: false
 };
 
+// Progress animation state cache to smooth UI updates
+const progressAnimations = new Map();
+const requestAnimationFrameSafe =
+	typeof window !== "undefined" && window.requestAnimationFrame
+		? window.requestAnimationFrame.bind(window)
+		: (callback) => setTimeout(callback, 16);
+const cancelAnimationFrameSafe =
+	typeof window !== "undefined" && window.cancelAnimationFrame
+		? window.cancelAnimationFrame.bind(window)
+		: (id) => clearTimeout(id);
+
 if (localStorage.getItem("configPath")) {
 	configArg = "--config-location";
 	configTxt = `"${localStorage.getItem("configPath")}"`;
@@ -1841,14 +1852,17 @@ function setLocalStorageYtDlp(ytDlpPath) {
  * @returns {string} 进度条HTML
  */
 function createProgressBar(id, stage, percent = 0) {
+	const numericPercent = sanitizePercent(percent) ?? 0;
+	const displayPercent = formatPercentText(numericPercent);
+
 	return `
-		<div class="progress-container" id="progress-${id}">
+		<div class="progress-container" id="progress-${id}" data-status="active">
 			<div class="progress-stage">${stage}</div>
 			<div class="progress-bar-wrapper">
 				<div class="progress-bar">
-					<div class="progress-fill" style="width: ${percent}%"></div>
+					<div class="progress-fill" style="width: ${numericPercent.toFixed(2)}%"></div>
 				</div>
-				<div class="progress-text">${percent}%</div>
+				<div class="progress-text">${displayPercent}%</div>
 			</div>
 			<div class="progress-speed"></div>
 			<div class="progress-eta"></div>
@@ -1865,39 +1879,60 @@ function updateProgressBar(id, progress) {
 	const container = getId(`progress-${id}`);
 	if (!container) return;
 
-	const stageElement = container.querySelector('.progress-stage');
-	const fillElement = container.querySelector('.progress-fill');
-	const textElement = container.querySelector('.progress-text');
-	const speedElement = container.querySelector('.progress-speed');
-	const etaElement = container.querySelector('.progress-eta');
+	container.dataset.status = container.dataset.status || "active";
 
-	if (stageElement && progress.stage) {
-		stageElement.textContent = getStageDisplayName(progress.stage);
+	const stageElement = container.querySelector(".progress-stage");
+	const fillElement = container.querySelector(".progress-fill");
+	const textElement = container.querySelector(".progress-text");
+	const speedElement = container.querySelector(".progress-speed");
+	const etaElement = container.querySelector(".progress-eta");
+
+	if (progress.stage) {
+		container.dataset.stage = progress.stage;
+		if (stageElement) {
+			stageElement.textContent = getStageDisplayName(progress.stage);
+			stageElement.style.color = '';
+		}
 	}
 
-	if (fillElement && textElement) {
-		const percent = Math.round(progress.percent || 0);
-		fillElement.style.width = `${percent}%`;
-		textElement.textContent = `${percent}%`;
+	const percentValue = sanitizePercent(progress.percent);
+	if (fillElement && textElement && percentValue !== null) {
+		fillElement.style.width = `${percentValue.toFixed(2)}%`;
+		const displayPercent = formatPercentText(percentValue);
+		textElement.textContent = `${displayPercent}%`;
 	}
 
-	if (speedElement && progress.speed) {
-		speedElement.textContent = `速度: ${formatSpeed(progress.speed)}`;
+	if (speedElement) {
+		if (progress.speed && progress.speed > 0) {
+			speedElement.textContent = `速度: ${formatSpeed(progress.speed)}`;
+			speedElement.style.display = "block";
+		} else {
+			speedElement.textContent = "";
+			speedElement.style.display = "none";
+		}
 	}
 
-	if (etaElement && progress.eta) {
-		etaElement.textContent = `剩余: ${formatTime(progress.eta)}`;
+	if (etaElement) {
+		if (progress.eta && progress.eta > 0) {
+			etaElement.textContent = `剩余: ${formatTime(progress.eta)}`;
+			etaElement.style.display = "block";
+		} else {
+			etaElement.textContent = "";
+			etaElement.style.display = "none";
+		}
 	}
 
+	const existingMessageElement = container.querySelector(".progress-message");
 	if (progress.message) {
-		// 添加详细消息显示
-		let messageElement = container.querySelector('.progress-message');
+		let messageElement = existingMessageElement;
 		if (!messageElement) {
-			messageElement = document.createElement('div');
-			messageElement.className = 'progress-message';
+			messageElement = document.createElement("div");
+			messageElement.className = "progress-message";
 			container.appendChild(messageElement);
 		}
 		messageElement.textContent = progress.message;
+	} else if (existingMessageElement) {
+		existingMessageElement.remove();
 	}
 }
 
@@ -1936,6 +1971,131 @@ function formatSpeed(speed) {
 }
 
 /**
+ * 格式化百分比文本显示
+ * @param {number} value - 百分比值
+ * @returns {string}
+ */
+function formatPercentText(value) {
+	if (value >= 99.9) {
+		return "100";
+	}
+	if (value <= 0.05) {
+		return "0";
+	}
+	return value >= 10 ? value.toFixed(1) : value.toFixed(2);
+}
+
+/**
+ * 将百分比值规范化到 0-100 之间，无法解析时返回 null
+ * @param {number|string|undefined|null} value
+ * @returns {number|null}
+ */
+function sanitizePercent(value) {
+	if (value === undefined || value === null) {
+		return null;
+	}
+	const parsed = Number.parseFloat(value);
+	if (Number.isNaN(parsed) || !Number.isFinite(parsed)) {
+		return null;
+	}
+	return Math.min(100, Math.max(0, parsed));
+}
+
+/**
+ * 停止并清理指定进度条的动画状态
+ * @param {string} id - 进度条ID
+ */
+function clearProgressAnimation(id) {
+	const state = progressAnimations.get(id);
+	if (!state) return;
+	if (state.rafId !== null) {
+		cancelAnimationFrameSafe(state.rafId);
+	}
+	progressAnimations.delete(id);
+}
+
+/**
+ * 平滑更新进度条，减少跳动
+ * @param {string} id - 进度条ID
+ * @param {Object} progress - 进度信息
+ */
+function smoothProgressUpdate(id, progress) {
+	const targetPercent = sanitizePercent(progress.percent);
+
+	if (targetPercent === null) {
+		// 无百分比信息时直接刷新其他字段
+		updateProgressBar(id, progress);
+		return;
+	}
+
+	let state = progressAnimations.get(id);
+
+	if (!state) {
+		state = {
+			current: targetPercent,
+			target: targetPercent,
+			meta: { ...progress, percent: targetPercent },
+			rafId: null
+		};
+		progressAnimations.set(id, state);
+		updateProgressBar(id, state.meta);
+		return;
+	}
+
+	const previousStage = state.meta?.stage;
+	const nextStage = progress.stage ?? previousStage;
+	state.target = targetPercent;
+	state.meta = { ...progress, stage: nextStage, percent: state.current };
+
+	const stageChanged = previousStage && nextStage && previousStage !== nextStage;
+
+	if (stageChanged) {
+		if (state.rafId !== null) {
+			cancelAnimationFrameSafe(state.rafId);
+			state.rafId = null;
+		}
+		state.current = targetPercent;
+		state.target = targetPercent;
+		state.meta.percent = targetPercent;
+		updateProgressBar(id, state.meta);
+		return;
+	}
+
+	// 若当前已经接近目标，直接更新即可
+	if (Math.abs(state.current - state.target) <= 0.1 && state.rafId === null) {
+		state.current = state.target;
+		state.meta.percent = state.current;
+		updateProgressBar(id, state.meta);
+		return;
+	}
+
+	// 如果动画正在进行，先更新显示其它字段，等待下一帧继续动画
+	if (state.rafId !== null) {
+		updateProgressBar(id, { ...state.meta, percent: state.current });
+		return;
+	}
+
+	const step = () => {
+		state.rafId = null;
+		const diff = state.target - state.current;
+
+		if (Math.abs(diff) <= 0.1) {
+			state.current = state.target;
+			state.meta.percent = state.current;
+			updateProgressBar(id, state.meta);
+			return;
+		}
+
+		state.current += diff * 0.25;
+		state.meta.percent = state.current;
+		updateProgressBar(id, state.meta);
+		state.rafId = requestAnimationFrameSafe(step);
+	};
+
+	state.rafId = requestAnimationFrameSafe(step);
+}
+
+/**
  * 格式化时间显示
  * @param {number} seconds - 秒数
  * @returns {string} 格式化后的时间
@@ -1964,6 +2124,8 @@ function completeProgressBar(id, message, success = true) {
 	const container = getId(`progress-${id}`);
 	if (!container) return;
 
+	clearProgressAnimation(id);
+
 	const progressElement = container.querySelector('.progress-bar-wrapper');
 	const stageElement = container.querySelector('.progress-stage');
 
@@ -1976,11 +2138,19 @@ function completeProgressBar(id, message, success = true) {
 		stageElement.style.color = success ? 'var(--greenBtn)' : 'var(--redBtn)';
 	}
 
+	container.dataset.status = success ? 'completed' : 'failed';
+	container.dataset.stage = success ? 'COMPLETED' : 'FAILED';
+
 	// 移除速度和ETA显示
 	const speedElement = container.querySelector('.progress-speed');
 	const etaElement = container.querySelector('.progress-eta');
 	if (speedElement) speedElement.style.display = 'none';
 	if (etaElement) etaElement.style.display = 'none';
+
+	const messageElement = container.querySelector('.progress-message');
+	if (messageElement) {
+		messageElement.remove();
+	}
 }
 
 /**
@@ -1990,6 +2160,7 @@ function completeProgressBar(id, message, success = true) {
 function removeProgressBar(id) {
 	const container = getId(`progress-${id}`);
 	if (container) {
+		clearProgressAnimation(id);
 		container.remove();
 	}
 }
@@ -2036,17 +2207,20 @@ ipcRenderer.on('job:progress', (event, data) => {
 
 	// 更新或创建进度条
 	let progressBar = progressContainer.querySelector('.progress-container');
+	const progressPayload = {
+		stage,
+		percent,
+		message,
+		speed,
+		eta
+	};
+
 	if (!progressBar) {
-		progressContainer.innerHTML = createProgressBar(progressId, getStageDisplayName(stage), percent || 0);
-	} else {
-		updateProgressBar(progressId, {
-			stage,
-			percent: percent || 0,
-			message,
-			speed,
-			eta
-		});
+		const initialPercent = sanitizePercent(percent) ?? 0;
+		progressContainer.innerHTML = createProgressBar(progressId, getStageDisplayName(stage), initialPercent);
 	}
+
+	smoothProgressUpdate(progressId, progressPayload);
 });
 
 // 监听作业状态变更事件
@@ -2126,15 +2300,18 @@ ipcRenderer.on('transcribe:progress', (event, data) => {
 
 	// 更新或创建进度条
 	let progressBar = progressContainer.querySelector('.progress-container');
+	const progressPayload = {
+		stage: 'TRANSCRIBING',
+		percent: progress.percent,
+		message: progress.message
+	};
+
 	if (!progressBar) {
-		progressContainer.innerHTML = createProgressBar(progressId, '转写中', progress.percent || 0);
-	} else {
-		updateProgressBar(progressId, {
-			stage: 'TRANSCRIBING',
-			percent: progress.percent || 0,
-			message: progress.message
-		});
+		const initialPercent = sanitizePercent(progress.percent) ?? 0;
+		progressContainer.innerHTML = createProgressBar(progressId, '转写中', initialPercent);
 	}
+
+	smoothProgressUpdate(progressId, progressPayload);
 });
 
 // 监听转写开始事件

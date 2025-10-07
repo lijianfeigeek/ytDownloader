@@ -171,30 +171,45 @@ function parseProgressEvent(event) {
 
   try {
     // 根据 yt-dlp-wrap-plus 的事件结构解析进度
-    if (event.percent) {
-      progress.percent = Math.round(event.percent);
+    if (event.percent !== undefined && event.percent !== null) {
+      const parsedPercent = parseFloat(event.percent);
+      if (!Number.isNaN(parsedPercent) && Number.isFinite(parsedPercent)) {
+        progress.percent = Math.min(100, Math.max(0, parsedPercent));
+      }
     }
 
-    if (event.speed) {
-      progress.speed = event.speed;
+    if (event.speed !== undefined && event.speed !== null) {
+      const parsedSpeed = parseFloat(event.speed);
+      if (!Number.isNaN(parsedSpeed) && Number.isFinite(parsedSpeed)) {
+        progress.speed = parsedSpeed;
+      }
     }
 
-    if (event.eta) {
-      progress.eta = event.eta;
+    if (event.eta !== undefined && event.eta !== null) {
+      const parsedEta = parseFloat(event.eta);
+      if (!Number.isNaN(parsedEta) && Number.isFinite(parsedEta)) {
+        progress.eta = Math.max(0, parsedEta);
+      }
     }
 
-    if (event.total) {
-      progress.totalBytes = event.total;
+    if (event.total !== undefined && event.total !== null) {
+      const parsedTotal = parseFloat(event.total);
+      if (!Number.isNaN(parsedTotal) && Number.isFinite(parsedTotal)) {
+        progress.totalBytes = parsedTotal;
+      }
     }
 
-    if (event.downloaded) {
-      progress.downloadedBytes = event.downloaded;
+    if (event.downloaded !== undefined && event.downloaded !== null) {
+      const parsedDownloaded = parseFloat(event.downloaded);
+      if (!Number.isNaN(parsedDownloaded) && Number.isFinite(parsedDownloaded)) {
+        progress.downloadedBytes = parsedDownloaded;
+      }
     }
 
     // 构建进度消息
     const messages = [];
     if (progress.percent > 0) {
-      messages.push(`${progress.percent}%`);
+      messages.push(`${progress.percent.toFixed(progress.percent >= 10 ? 1 : 2)}%`);
     }
     if (progress.speed > 0) {
       messages.push(`${(progress.speed / 1024 / 1024).toFixed(1)}MB/s`);
