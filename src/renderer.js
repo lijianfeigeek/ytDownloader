@@ -6,6 +6,19 @@ const {shell, ipcRenderer, clipboard} = require("electron");
 const {default: YTDlpWrap} = require("yt-dlp-wrap-plus");
 const {constants} = require("fs/promises");
 
+/**
+ * Quote a value for safe usage in shell command arguments.
+ * Escapes characters that shells treat specially while preserving Unicode.
+ * @param {string} value
+ * @returns {string}
+ */
+function shellQuote(value) {
+	if (typeof value !== "string") {
+		return "\"\"";
+	}
+	return `"${value.replace(/(["$`\\])/g, "\\$1")}"`;
+}
+
 // Runtime binaries directory
 const runtimeBinDir = path.join(__dirname, '..', 'resources', 'runtime', 'bin');
 
@@ -1227,7 +1240,7 @@ function download(
 			"-f",
 			`${format_id}${audioFormat}`,
 			"-o",
-			`"${path.join(downloadDir, filename + `.${ext}`)}"`,
+			shellQuote(path.join(downloadDir, `${filename}.${ext}`)),
 			"--ffmpeg-location",
 			ffmpeg,
 			// Fix for windows media player
@@ -1282,7 +1295,7 @@ function download(
 			"--audio-quality",
 			extractQuality1,
 			"-o",
-			`"${path.join(downloadDir, filename + `.${extractExt}`)}"`,
+			shellQuote(path.join(downloadDir, `${filename}.${extractExt}`)),
 			"--ffmpeg-location",
 			ffmpeg,
 			"--embed-chapters",
@@ -1320,7 +1333,7 @@ function download(
 			"-f",
 			format_id,
 			"-o",
-			`"${path.join(downloadDir, filename + `.${ext}`)}"`,
+			shellQuote(path.join(downloadDir, `${filename}.${ext}`)),
 			"--ffmpeg-location",
 			ffmpeg,
 			subs1 || subs,
